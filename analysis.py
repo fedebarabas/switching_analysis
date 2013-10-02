@@ -8,6 +8,7 @@ Created on Wed Sep 25 17:23:02 2013
 
 import os
 import numpy as np
+import matplotlib
 import matplotlib.figure as figure
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
@@ -84,21 +85,26 @@ class Data:
 #        print('Fitted tau = ', self.tau)
 
         # PLOT
-        if not(quiet):
-            hist_fit = expo(self.bin_centres, *self.fit_par)
-            plt.title(self.path)
-            plt.bar(self.bin_centres, self.hist, self.bin_width,
-                    alpha=0.5, label='_nolegend_')
-            plt.plot(self.bin_centres[fit_start:-1], hist_fit[fit_start:-1],
-                     color='r', lw=3,
-                     label="y = A * exp(-inv_tau * x)\nA = {}\n1/inv_tau = {}"
-                     .format(int(self.amplitude), int(self.inv_tau)))
-            plt.xlabel(self.parameter)
-            plt.grid(True)
-            plt.legend()
-            plt.show(block='True')
 
-        self.figure = figure.Figure()
+        if not(quiet):
+            matplotlib.use('Agg')
+
+        fig = plt.figure()
+        hist_fit = expo(self.bin_centres, *self.fit_par)
+        plt.title(self.path)
+        plt.bar(self.bin_centres, self.hist, self.bin_width,
+                alpha=0.5, label='_nolegend_')
+        plt.plot(self.bin_centres[fit_start:-1], hist_fit[fit_start:-1],
+                 color='r', lw=3,
+                 label="y = A * exp(-inv_tau * x)\nA = {}\n1/inv_tau = {}"
+                 .format(int(self.amplitude), int(self.inv_tau)))
+        plt.xlabel(self.parameter)
+        plt.grid(True)
+        plt.legend()
+        self.figure = fig
+
+        if not(quiet):
+            plt.show(block='True')
 
 if __name__ == "__main__":
 
@@ -129,4 +135,5 @@ if __name__ == "__main__":
         data_list[i].fit(2, True)
         print(data_list[i].tau)
 
-    print(data_list[2].figure)
+    data_list[2].figure.canvas.draw()
+#    plt.draw()
