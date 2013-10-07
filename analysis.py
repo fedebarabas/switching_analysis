@@ -11,6 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
+    # TODO: DETECT AND MERGE MEASUREMENTS OF THE SAME DAY AND POWER
+
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
@@ -32,13 +34,22 @@ def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\', parameter='photons'):
 
     file_list = glob("*.sw_" + parameter)
 
-    return dir_name, file_list
+    dots = [file_list[i].find('.') for i in range(len(file_list))]
+
+    file_list[i][0:dots[i]] # PART TO FIND IN THE OTHER ITEMS
+
+    # TODO: return_list SHOULD BE A LIST OF LISTS OF THINGS
+    #       THAT HAVE TO BE JOINED
+
+    return dir_name, return_list
 
 class Data:
     """Methods for analyzing the switching dynamics data"""
 
     def load(self, file_name, bins=50):
         """Data loading"""
+
+        # TODO: JOIN LISTS OF FILES
 
         # Paths and parameter extraction
         self.file_name = file_name
