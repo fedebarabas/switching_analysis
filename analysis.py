@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\', parameter='photons'):
+def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\', parameter):
 
     from tkinter import Tk, filedialog
     from glob import glob
@@ -124,7 +124,8 @@ class Data:
         self.tau = 1 / self.fit_par[1]
 
     def plot(self):
-        """Data plotting"""
+        """Data plotting.
+        If the data was fitted, the fitting function is plotted too."""
 
         self.fig, self.ax = plt.subplots()
         self.ax.set_title(self.minipath)
@@ -147,22 +148,46 @@ class Data:
                      .format(int(self.amplitude), int(self.tau)))
             self.ax.legend()
 
+        plt.show()
 
 if __name__ == "__main__":
 
-    dir_name, file_list = load_dir()
+    import h5py as hdf
+
+    parameter = 'photons'
+    dir_name, file_list = load_dir(parameter)
+    nfiles = len(file_list)
 
     # Creation of an instance of Data() for each file
     data_list = [Data() for file in file_list]
 
-    results = np.empty([len(file_list), 3])
+    dates = np.empty([nfiles, 3], dtype=int)
+    powers = np.empty([nfiles, 3], dtype=int)
+    tau = np.empty([nfiles, 3], dtype=float)
+    inv_tau = np.empty([nfiles, 3], dtype=float)
 
-#   Process all files in a loop
-    for i in range(len(file_list)):
+    # Process all files in a loop
+    for i in range(nfiles):
         data_list[i].load(dir_name, file_list[i])
         data_list[i].fit(2)
         data_list[i].plot()
-        results[i] = [data_list[i].date, data_list[i].tau, data_list[i].power]
+        dates[i] = data_list[i].date
+        powers[i] = data_list[i].power
+        results[i] = data_list[i].tau
 
-    print(data_list[0].parameter + " analyzed in " + dir_name)
-    print(results)
+    # Save results
+    save = input("Save results? (y/n) ")
+    if save == 'y':
+        print(parameter + " analyzed in " + dir_name)
+        print(results)
+        print("Saving...")
+        os.chdir(os.path.split(os.getcwd())[0])
+        store_name = parameter + "_vs_power.hdf5"
+        store_file = hdf.File(store_name, "w")
+        date_data = store_file.create_dataset("date", data=dates)
+        power_data = store_file.create_dataset("power", data=powers)
+        result_data = store_file.create_dataset("result", data=results)
+        store_file.close()
+
+    infile = hdf.File(store_name, "r")
+    a = infile[]
