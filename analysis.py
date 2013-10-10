@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\', parameter):
+def load_dir(parameter, initialdir='\\\\hell-fs\\STORM\\Switching\\'):
 
     from tkinter import Tk, filedialog
     from glob import glob
@@ -121,7 +121,7 @@ class Data:
         # Method definitions to make it more verbose
         self.amplitude = self.fit_par[0]
         self.inv_tau = self.fit_par[1]
-        self.tau = 1 / self.fit_par[1]
+        #self.tau = 1 / self.fit_par[1]
 
     def plot(self):
         """Data plotting.
@@ -144,50 +144,74 @@ class Data:
             self.ax.plot(self.bin_centres[self.fit_start:-1],
                      hist_fit[self.fit_start:-1],
                      color='r', lw=3,
-                     label="y = A * exp(-inv_tau * x)\nA = {}\ntau = {}"
-                     .format(int(self.amplitude), int(self.tau)))
+                     label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = {}\n"
+                             "tau = {}"
+                     .format(int(self.amplitude), self.inv_tau,
+                                                    1 / self.inv_tau))
             self.ax.legend()
 
         plt.show()
 
-if __name__ == "__main__":
+def analyze_folder(parameter, from_bin=0):
 
     import h5py as hdf
 
-    parameter = 'photons'
     dir_name, file_list = load_dir(parameter)
     nfiles = len(file_list)
 
     # Creation of an instance of Data() for each file
     data_list = [Data() for file in file_list]
 
-    dates = np.empty([nfiles, 3], dtype=int)
-    powers = np.empty([nfiles, 3], dtype=int)
-    tau = np.empty([nfiles, 3], dtype=float)
-    inv_tau = np.empty([nfiles, 3], dtype=float)
+    date_dtype = np.dtype((str, 6))
+    dates = np.empty((nfiles, ), dtype=date_dtype)
+    powers = np.empty((nfiles, ), dtype=int)
+    inv_tau = np.empty((nfiles, ), dtype=float)
 
     # Process all files in a loop
     for i in range(nfiles):
         data_list[i].load(dir_name, file_list[i])
-        data_list[i].fit(2)
+        data_list[i].fit(from_bin)
         data_list[i].plot()
         dates[i] = data_list[i].date
         powers[i] = data_list[i].power
-        results[i] = data_list[i].tau
+        inv_tau[i] = data_list[i].inv_tau
 
     # Save results
     save = input("Save results? (y/n) ")
     if save == 'y':
-        print(parameter + " analyzed in " + dir_name)
-        print(results)
-        print("Saving...")
-        os.chdir(os.path.split(os.getcwd())[0])
-        store_name = parameter + "_vs_power.hdf5"
-        store_file = hdf.File(store_name, "w")
-        date_data = store_file.create_dataset("date", data=dates)
-        power_data = store_file.create_dataset("power", data=powers)
-        result_data = store_file.create_dataset("result", data=results)
-        store_file.close()
 
-    infile = hdf.File(store_name, "r")
-    a = infile[]
+        # Results printing
+        print(parameter + " analyzed in " + dir_name)
+        print(powers)
+        print(inv_tau)
+        plt.plot(powers, inv_tau)
+
+        # Results saving
+#        print("Saving...")
+#        os.chdir(os.path.split(os.getcwd())[0])
+#        store_name = parameter + "_vs_power.hdf5"
+#
+#        # If file doesn't exist, it's created and the datasets are added
+#        if not(os.path.isfile(store_name)):
+#            store_file = hdf.File(store_name, "w")
+#            store_file.create_dataset("date", data=dates)
+#            store_file.create_dataset("power", data=powers)
+#            store_file.create_dataset("inv_tau", data=inv_tau)
+#        else:
+#
+#            store_file.close()
+#
+#    infile = hdf.File(store_name, "r")
+#    a = infile["date"]
+#    b = infile["power"]
+#    c = infile["inv_tau"]
+#    plt.plot(b, c)
+#    infile.close()
+
+if __name__ == "__main__":
+
+    # TODO: put units to work
+
+    parameter = 'photons'
+    analyze_folder(parameter, 2)
+
