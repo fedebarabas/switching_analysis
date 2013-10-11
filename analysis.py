@@ -7,14 +7,17 @@ Created on Wed Sep 25 17:23:02 2013
 """
 
 import os
+import sys
 import numpy as np
+import h5py as hdf
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def load_dir(parameter, initialdir='\\\\hell-fs\\STORM\\Switching\\'):
+def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\'):
 
     from tkinter import Tk, filedialog
     from glob import glob
@@ -31,7 +34,7 @@ def load_dir(parameter, initialdir='\\\\hell-fs\\STORM\\Switching\\'):
         print("No folder selected!")
 
     # Load list of files of the required type
-    file_list = glob("*.sw_" + parameter)
+    file_list = glob("*.sw_*")
 
     # Look for duplicates and put them in the same list
     return_list = []
@@ -57,20 +60,25 @@ class Data:
         self.subdir = os.path.split(dir_name)[1]
         self.file_name = file_name
         self.date = self.subdir[0:6]
+        self.joined = True
+        if type(file_name) is not(list):
+            file_name = [file_name]
+            self.joined = False
 
-        if type(file_name) is list:
-            # Paths and parameter extraction
-            self.path = [os.path.join(dir_name, file) for file in file_name]
-            self.joined = True
-            self.nfiles = len(file_name)
-            self.minipath = (self.subdir + r"/" +
-                                    file_name[0][0:file_name[0].find('.') - 4])
-            self.parameter = file_name[0][file_name[0].rindex('_')
-                                                        + 1:len(file_name[0])]
-            self.power = file_name[0][1:file_name[0].index('_') - 2]
+        # Paths and parameter extraction
+        self.path = [os.path.join(dir_name, file) for file in file_name]
+        self.joined = True
+        self.nfiles = len(file_name)
+        self.minipath = (self.subdir + r"/" +
+                                file_name[0][0:file_name[0].find('.') - 4])
+        self.parameter = file_name[0][file_name[0].rindex('_')
+                                                    + 1:len(file_name[0])]
+        self.power = file_name[0][1:file_name[0].index('_') - 2]
 
-            # Data loading
-            dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
+        # Data loading
+        dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
+
+        if len(file_name) > 1:
             self.table = np.empty((1), dtype=dt)
             for file in file_name:
                 self.table = np.concatenate((self.table,
@@ -78,21 +86,13 @@ class Data:
             self.table = self.table[1:-1]
 
         else:
-            # Paths and parameter extraction
-            self.joined = False
-            self.minipath = self.subdir + r"/" + file_name
-            self.parameter = file_name[file_name.rindex('_') + 1:len(file_name)]
-            self.power = file_name[1:file_name.index('_') - 2]
-
-            # Data loading
-            dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
             self.table = np.fromfile(file_name, dtype=dt)
 
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
         self.hist, bin_edges = np.histogram(self.table[self.parameter],
                                             bins=bins,
-                                            range=(0, bins * self.mean / 10))
+                                            range=(0, bins * self.mean / 12))
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
         self.bin_width = bin_edges[1] - bin_edges[0]
         self.fitted = False
@@ -121,7 +121,6 @@ class Data:
         # Method definitions to make it more verbose
         self.amplitude = self.fit_par[0]
         self.inv_tau = self.fit_par[1]
-        #self.tau = 1 / self.fit_par[1]
 
     def plot(self):
         """Data plotting.
@@ -152,66 +151,165 @@ class Data:
 
         plt.show()
 
-def analyze_folder(parameter, from_bin=0):
+    def save(self):
+        """Save in disk the results of the fitting of this instance of Data"""
 
-    import h5py as hdf
+        if self.fitted:
 
-    dir_name, file_list = load_dir(parameter)
-    nfiles = len(file_list)
+            print("Saving...")
+            os.chdir(os.path.split(os.getcwd())[0])
+            store_name = self.parameter + "_vs_power"
+            try:
+                if not(os.path.isfile(store_name)):
+                    store_file = hdf.File(store_name, "w")
+                    store_file.create_dataset("date",
+                                          data=np.array([int(self.date)]),
+                                          maxshape=(None,))
+                    store_file.create_dataset("power",
+                                          data=np.array([int(self.power)]),
+                                          maxshape=(None,))
+                    store_file.create_dataset("inv_tau",
+                                          data=np.array([int(self.inv_tau)]),
+                                          maxshape=(None,))
 
-    # Creation of an instance of Data() for each file
-    data_list = [Data() for file in file_list]
+                else:
 
-    date_dtype = np.dtype((str, 6))
-    dates = np.empty((nfiles, ), dtype=date_dtype)
-    powers = np.empty((nfiles, ), dtype=int)
-    inv_tau = np.empty((nfiles, ), dtype=float)
+                    store_file = hdf.File(store_name, "r+")
+                    prev_size = store_file["date"].size
+                    store_file["date"].resize((prev_size + 1,))
+                    store_file["date"][prev_size] = int(self.date)
+                    store_file["power"].resize((prev_size + 1,))
+                    store_file["power"][prev_size] = int(self.power)
+                    store_file["inv_tau"].resize((prev_size + 1,))
+                    store_file["inv_tau"][prev_size] = int(self.inv_tau)
 
-    # Process all files in a loop
-    for i in range(nfiles):
-        data_list[i].load(dir_name, file_list[i])
-        data_list[i].fit(from_bin)
-        data_list[i].plot()
-        dates[i] = data_list[i].date
-        powers[i] = data_list[i].power
-        inv_tau[i] = data_list[i].inv_tau
+                store_file.close()
 
-    # Save results
-    save = input("Save results? (y/n) ")
-    if save == 'y':
+            except:
+                print("Unexpected error:", sys.exc_info()[0])
+                store_file.close()
+
+        else:
+            print("Can't save results, Data not fitted")
+
+
+def save_folder(store_name, results):
+    """Saves the fitting results of the analysis of all files in a folder.
+    results = [dates, powers, inv_tau]"""
+
+    print("Saving...")
+    os.chdir(os.path.split(os.getcwd())[0])
+    nfiles = len(results[0])
+
+    # If file doesn't exist, it's created and the datasets are added
+    try:
+        if not(os.path.isfile(store_name)):
+            store_file = hdf.File(store_name, "w")
+            store_file.create_dataset("date", data=results[0],
+                                      maxshape=(None,))
+            store_file.create_dataset("power", data=results[1],
+                                      maxshape=(None,))
+            store_file.create_dataset("inv_tau", data=results[2],
+                                      maxshape=(None,))
+        else:
+            store_file = hdf.File(store_name, "r+")
+            prev_size = store_file["date"].size
+            store_file["date"].resize((prev_size + nfiles,))
+            store_file["date"][prev_size:] = results[0]
+            store_file["power"].resize((prev_size + nfiles,))
+            store_file["power"][prev_size:] = results[1]
+            store_file["inv_tau"].resize((prev_size + nfiles,))
+            store_file["inv_tau"][prev_size:] = results[2]
+
+        store_file.close()
+
+    except:
+        print("Unexpected error:", sys.exc_info()[0])
+        store_file.close()
+
+def analyze_folder(parameters, from_bin=0):
+
+    dir_name, files_list = load_dir()
+
+    if type(parameters) is not(list):
+            parameters = [parameters]
+
+    for parameter in parameters:
+
+        file_list = []
+        for item in files_list:
+            file_list.append([item_i for item_i in item if
+                                            item_i.endswith("_" + parameter)])
+
+        nfiles = len(file_list)
+
+        # Creation of an instance of Data() for each file
+        data_list = [Data() for file in file_list]
+
+        dates = np.empty((nfiles, ), dtype=int)
+        powers = np.empty((nfiles, ), dtype=int)
+        inv_tau = np.empty((nfiles, ), dtype=float)
+
+        # Process all files in a loop
+        for i in range(nfiles):
+            data_list[i].load(dir_name, file_list[i])
+            data_list[i].fit(from_bin)
+            data_list[i].plot()
+            dates[i] = data_list[i].date
+            powers[i] = data_list[i].power
+            inv_tau[i] = data_list[i].inv_tau
 
         # Results printing
         print(parameter + " analyzed in " + dir_name)
+        print(dates)
         print(powers)
         print(inv_tau)
-        plt.plot(powers, inv_tau)
+        print(1 / inv_tau)
 
-        # Results saving
-#        print("Saving...")
-#        os.chdir(os.path.split(os.getcwd())[0])
-#        store_name = parameter + "_vs_power.hdf5"
-#
-#        # If file doesn't exist, it's created and the datasets are added
-#        if not(os.path.isfile(store_name)):
-#            store_file = hdf.File(store_name, "w")
-#            store_file.create_dataset("date", data=dates)
-#            store_file.create_dataset("power", data=powers)
-#            store_file.create_dataset("inv_tau", data=inv_tau)
-#        else:
-#
-#            store_file.close()
-#
-#    infile = hdf.File(store_name, "r")
-#    a = infile["date"]
-#    b = infile["power"]
-#    c = infile["inv_tau"]
-#    plt.plot(b, c)
-#    infile.close()
+        # If the plots are ok, Save results
+        save = input("Save results? (y/n) ")
+        if save == 'y':
+            store_name = parameter + "_vs_power.hdf5"
+            save_folder(store_name, [dates, powers, inv_tau])
+
+def load_results(parameter, inv=True):
+    """Load results held in 'parameter'_vs_power.hdf5 file"""
+
+    store_name = parameter + "_vs_power.hdf5"
+
+    if os.path.isfile(store_name):
+
+        infile = hdf.File(store_name, "r")
+        a = infile["date"].value
+        b = infile["power"].value
+        c = infile["inv_tau"].value
+        print(a)
+        print(b)
+        print(c)
+        infile.close()
+
+        if inv:
+
+            plt.scatter(b, c)
+
+        else:
+
+            plt.scatter(b, 1 / c)
+
+        plt.show()
+
+        return np.array([a, b, c])
+
+    else:
+
+        print("File " + store_name + " not found in " + os.getcwd())
+
 
 if __name__ == "__main__":
 
     # TODO: put units to work
 
     parameter = 'photons'
-    analyze_folder(parameter, 2)
-
+    analyze_folder(parameter, 3)
+    print(os.getcwd())
+    load_results(parameter)
