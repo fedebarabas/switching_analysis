@@ -90,12 +90,21 @@ class Data:
 
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
+
+        # Mean width cannot be less than 1 because we're making an histogram
+        # of number of FRAMES
+        self.bin_width = max([round(self.mean / 12), 1])
         self.hist, bin_edges = np.histogram(self.table[self.parameter],
                                             bins=bins,
-                                            range=(0, bins * self.mean / 12))
+                                            range=(0, bins * self.bin_width))
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
-        self.bin_width = bin_edges[1] - bin_edges[0]
         self.fitted = False
+
+        txt = self.file_name # TODO: algo con esto
+        out = np.loadtxt(txt, dtype=str, delimiter=r"b'")
+
+        self.frame_rate = float(out[22][out[22].find("=") + 1:-2])
+
 
     def fit(self, fit_start=0):
         """Histogram fitting"""
@@ -120,7 +129,8 @@ class Data:
 
         # Method definitions to make it more verbose
         self.amplitude = self.fit_par[0]
-        self.inv_tau = self.fit_par[1]
+        if self.parameter in ['offtimes', 'ontimes']:
+            self.inv_tau = self.fit_par[1] * self.frame_rate
 
     def plot(self):
         """Data plotting.
@@ -144,9 +154,9 @@ class Data:
                      hist_fit[self.fit_start:-1],
                      color='r', lw=3,
                      label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = {}\n"
-                             "tau = {}"
+                             "tau = {}\npower = {}"
                      .format(int(self.amplitude), self.inv_tau,
-                                                    1 / self.inv_tau))
+                             1 / self.inv_tau, self.power))
             self.ax.legend()
 
         plt.show()
@@ -231,8 +241,12 @@ def analyze_folder(parameters, from_bin=0):
 
     dir_name, files_list = load_dir()
 
+    # Conversion of parameters and from_bin to list and array
     if type(parameters) is not(list):
             parameters = [parameters]
+
+    if from_bin == 0:
+        from_bin = np.zeros((len(parameters), ))
 
     for parameter in parameters:
 
@@ -253,7 +267,7 @@ def analyze_folder(parameters, from_bin=0):
         # Process all files in a loop
         for i in range(nfiles):
             data_list[i].load(dir_name, file_list[i])
-            data_list[i].fit(from_bin)
+            data_list[i].fit(from_bin[parameters.index(parameter)])
             data_list[i].plot()
             dates[i] = data_list[i].date
             powers[i] = data_list[i].power
@@ -261,10 +275,12 @@ def analyze_folder(parameters, from_bin=0):
 
         # Results printing
         print(parameter + " analyzed in " + dir_name)
-        print(dates)
-        print(powers)
-        print(inv_tau)
-        print(1 / inv_tau)
+#        print('Powers:')
+#        print(powers)
+#        print('inv_tau:')
+#        print(inv_tau)
+#        print('1 / inv_tau:')
+#        print(1 / inv_tau)
 
         # If the plots are ok, Save results
         save = input("Save results? (y/n) ")
@@ -304,12 +320,22 @@ def load_results(parameter, inv=True):
 
         print("File " + store_name + " not found in " + os.getcwd())
 
+    ### TODO: put units to work
 
 if __name__ == "__main__":
 
-    # TODO: put units to work
 
-    parameter = 'photons'
-    analyze_folder(parameter, 3)
+
+    parameter = ['ontimes', 'photons']
+    first_bin = [3, 3]
+
+    import switching_analysis.analysis as sw
+#    import imp
+#    imp.reload(sw)
+
+
+#    dir_name, return_list = sw.load_dir()
+
+    sw.analyze_folder(parameter, first_bin)
     print(os.getcwd())
     load_results(parameter)
