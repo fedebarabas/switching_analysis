@@ -100,11 +100,10 @@ class Data:
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
         self.fitted = False
 
-        txt = self.file_name # TODO: algo con esto
-        out = np.loadtxt(txt, dtype=str, delimiter=r"b'")
-
-        self.frame_rate = float(out[22][out[22].find("=") + 1:-2])
-
+        # Frame rate extraction from .inf file
+        inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
+        inf_data = np.loadtxt(inf_name, dtype=str)
+        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-2])
 
     def fit(self, fit_start=0):
         """Histogram fitting"""
@@ -131,6 +130,11 @@ class Data:
         self.amplitude = self.fit_par[0]
         if self.parameter in ['offtimes', 'ontimes']:
             self.inv_tau = self.fit_par[1] * self.frame_rate
+        else:
+            self.inv_tau = self.fit_par[1]
+
+        # TODO: Change this to a record array containing date, power & inv_tau
+        # record array = self.results
 
     def plot(self):
         """Data plotting.
@@ -184,6 +188,7 @@ class Data:
 
                 else:
 
+                    # TODO: Check if already saved, change shape
                     store_file = hdf.File(store_name, "r+")
                     prev_size = store_file["date"].size
                     store_file["date"].resize((prev_size + 1,))
@@ -208,7 +213,8 @@ def save_folder(store_name, results):
     results = [dates, powers, inv_tau]"""
 
     print("Saving...")
-    os.chdir(os.path.split(os.getcwd())[0])
+    cwd = os.getcwd()
+    os.chdir(os.path.split(cwd)[0])
     nfiles = len(results[0])
 
     # If file doesn't exist, it's created and the datasets are added
@@ -224,18 +230,37 @@ def save_folder(store_name, results):
         else:
             store_file = hdf.File(store_name, "r+")
             prev_size = store_file["date"].size
-            store_file["date"].resize((prev_size + nfiles,))
-            store_file["date"][prev_size:] = results[0]
-            store_file["power"].resize((prev_size + nfiles,))
-            store_file["power"][prev_size:] = results[1]
-            store_file["inv_tau"].resize((prev_size + nfiles,))
-            store_file["inv_tau"][prev_size:] = results[2]
+
+            # Check if this data was already saved
+            dates = np.array(store_file["date"].value).reshape(prev_size, 1)
+            powers = np.array(store_file["power"].value).reshape(prev_size, 1)
+            inv_taus = np.array(store_file["inv_tau"].value).reshape(prev_size, 1)
+            print("antes")
+            data = np.hstack((dates, powers, inv_taus))
+
+            for i in arange(col.shape[0])
+
+            if any(np.equal(data,results).all(1)):
+                print("These results where already saved, "
+                "we're not doing that again.")
+
+            else:
+                store_file["date"].resize((prev_size + nfiles,))
+                store_file["date"][prev_size:] = results[0]
+                store_file["power"].resize((prev_size + nfiles,))
+                store_file["power"][prev_size:] = results[1]
+                store_file["inv_tau"].resize((prev_size + nfiles,))
+                store_file["inv_tau"][prev_size:] = results[2]
 
         store_file.close()
+
+    # TODO: Change handling of results in the whole code --> RECORD ARRAY
 
     except:
         print("Unexpected error:", sys.exc_info()[0])
         store_file.close()
+
+    os.chdir(cwd)
 
 def analyze_folder(parameters, from_bin=0):
 
@@ -275,52 +300,57 @@ def analyze_folder(parameters, from_bin=0):
 
         # Results printing
         print(parameter + " analyzed in " + dir_name)
-#        print('Powers:')
-#        print(powers)
-#        print('inv_tau:')
-#        print(inv_tau)
-#        print('1 / inv_tau:')
-#        print(1 / inv_tau)
 
         # If the plots are ok, Save results
         save = input("Save results? (y/n) ")
         if save == 'y':
             store_name = parameter + "_vs_power.hdf5"
+            print([dates, powers, inv_tau])
             save_folder(store_name, [dates, powers, inv_tau])
 
-def load_results(parameter, inv=True):
+def load_results(parameter, inv=True,
+                 load_dir='\\\\hell-fs\\STORM\\Switching\\'):
     """Load results held in 'parameter'_vs_power.hdf5 file"""
 
     store_name = parameter + "_vs_power.hdf5"
+    os.chdir(load_dir)
 
     if os.path.isfile(store_name):
 
+        # Load data from HDF5 file
         infile = hdf.File(store_name, "r")
-        a = infile["date"].value
-        b = infile["power"].value
-        c = infile["inv_tau"].value
-        print(a)
-        print(b)
-        print(c)
+        dates = infile["date"].value
+        powers = infile["power"].value
+        inv_taus = infile["inv_tau"].value
+        n_dtakes = infile["date"].size
         infile.close()
 
+        # Reshape for better table visualization
+        np.set_printoptions(suppress=True)
+        dates_col = np.array(dates.reshape(n_dtakes, 1))
+        powers_col = np.array(powers).reshape(n_dtakes, 1)
+        inv_taus_col = np.array(inv_taus).reshape(n_dtakes, 1)
+        data = np.hstack((dates_col, powers_col, inv_taus_col))
+
+        # Plot
         if inv:
 
-            plt.scatter(b, c)
+            plt.scatter(powers, inv_taus)
 
         else:
 
-            plt.scatter(b, 1 / c)
+            plt.scatter(powers, 1 / inv_taus)
 
         plt.show()
 
-        return np.array([a, b, c])
+        return data
 
     else:
 
         print("File " + store_name + " not found in " + os.getcwd())
 
     ### TODO: put units to work
+
 
 if __name__ == "__main__":
 
@@ -338,4 +368,4 @@ if __name__ == "__main__":
 
     sw.analyze_folder(parameter, first_bin)
     print(os.getcwd())
-    load_results(parameter)
+    sw.load_results(parameter)
