@@ -59,7 +59,7 @@ class Data:
 
         self.subdir = os.path.split(dir_name)[1]
         self.file_name = file_name
-        self.date = self.subdir[0:6]
+        self.date = int(self.subdir[0:6])
         self.joined = True
         if type(file_name) is not(list):
             file_name = [file_name]
@@ -73,7 +73,7 @@ class Data:
                                 file_name[0][0:file_name[0].find('.') - 4])
         self.parameter = file_name[0][file_name[0].rindex('_')
                                                     + 1:len(file_name[0])]
-        self.power = file_name[0][1:file_name[0].index('_') - 2]
+        self.power = int(file_name[0][1:file_name[0].index('_') - 2])
 
         # Data loading
         dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
@@ -128,13 +128,12 @@ class Data:
 
         # Method definitions to make it more verbose
         self.amplitude = self.fit_par[0]
+        self.inv_tau = self.fit_par[1]
         if self.parameter in ['offtimes', 'ontimes']:
-            self.inv_tau = self.fit_par[1] * self.frame_rate
-        else:
-            self.inv_tau = self.fit_par[1]
+            self.inv_tau = self.inv_tau * self.frame_rate
 
-        # TODO: Change this to a record array containing date, power & inv_tau
-        # record array = self.results
+        # This will be useful later
+        self.results = (self.date, self.power, self.inv_tau)
 
     def plot(self):
         """Data plotting.
@@ -177,13 +176,13 @@ class Data:
                 if not(os.path.isfile(store_name)):
                     store_file = hdf.File(store_name, "w")
                     store_file.create_dataset("date",
-                                          data=np.array([int(self.date)]),
+                                          data=np.array([self.date]),
                                           maxshape=(None,))
                     store_file.create_dataset("power",
-                                          data=np.array([int(self.power)]),
+                                          data=np.array([self.power]),
                                           maxshape=(None,))
                     store_file.create_dataset("inv_tau",
-                                          data=np.array([int(self.inv_tau)]),
+                                          data=np.array([self.inv_tau]),
                                           maxshape=(None,))
 
                 else:
@@ -192,11 +191,11 @@ class Data:
                     store_file = hdf.File(store_name, "r+")
                     prev_size = store_file["date"].size
                     store_file["date"].resize((prev_size + 1,))
-                    store_file["date"][prev_size] = int(self.date)
+                    store_file["date"][prev_size] = self.date
                     store_file["power"].resize((prev_size + 1,))
-                    store_file["power"][prev_size] = int(self.power)
+                    store_file["power"][prev_size] = self.power
                     store_file["inv_tau"].resize((prev_size + 1,))
-                    store_file["inv_tau"][prev_size] = int(self.inv_tau)
+                    store_file["inv_tau"][prev_size] = self.inv_tau
 
                 store_file.close()
 
@@ -215,30 +214,27 @@ def save_folder(store_name, results):
     print("Saving...")
     cwd = os.getcwd()
     os.chdir(os.path.split(cwd)[0])
-    nfiles = len(results[0])
+    nfiles = results.size
 
     # If file doesn't exist, it's created and the datasets are added
     try:
         if not(os.path.isfile(store_name)):
             store_file = hdf.File(store_name, "w")
-            store_file.create_dataset("date", data=results[0],
-                                      maxshape=(None,))
-            store_file.create_dataset("power", data=results[1],
-                                      maxshape=(None,))
-            store_file.create_dataset("inv_tau", data=results[2],
+            store_file.create_dataset("sw_results",
+                                      data=results,
                                       maxshape=(None,))
         else:
             store_file = hdf.File(store_name, "r+")
-            prev_size = store_file["date"].size
+            prev_size = store_file["sw_results"].size
 
             # Check if this data was already saved
-            dates = np.array(store_file["date"].value).reshape(prev_size, 1)
-            powers = np.array(store_file["power"].value).reshape(prev_size, 1)
-            inv_taus = np.array(store_file["inv_tau"].value).reshape(prev_size, 1)
-            print("antes")
-            data = np.hstack((dates, powers, inv_taus))
+            prev_results = store_file.value
+            # List of True and Falses indicating if the row is already present
+            # in prev_results
+            exists = [any(np.equal(prev_results.tolist(),results_i).all(1)) for results_i in results]
 
-            for i in arange(col.shape[0])
+            # http://docs.scipy.org/doc/numpy/reference/generated/numpy.where.html
+            # TODO: keep going
 
             if any(np.equal(data,results).all(1)):
                 print("These results where already saved, "
@@ -253,8 +249,6 @@ def save_folder(store_name, results):
                 store_file["inv_tau"][prev_size:] = results[2]
 
         store_file.close()
-
-    # TODO: Change handling of results in the whole code --> RECORD ARRAY
 
     except:
         print("Unexpected error:", sys.exc_info()[0])
@@ -285,18 +279,22 @@ def analyze_folder(parameters, from_bin=0):
         # Creation of an instance of Data() for each file
         data_list = [Data() for file in file_list]
 
-        dates = np.empty((nfiles, ), dtype=int)
-        powers = np.empty((nfiles, ), dtype=int)
-        inv_tau = np.empty((nfiles, ), dtype=float)
+        # Structured array for the results of the folder
+        r_dtype = np.dtype([('date', int),
+                            ('power', int),
+                            ('inv_tau', float)])
+        folder_results = np.zeros(nfiles, dtype=r_dtype)
 
         # Process all files in a loop
         for i in range(nfiles):
+
+            # Procedures
             data_list[i].load(dir_name, file_list[i])
             data_list[i].fit(from_bin[parameters.index(parameter)])
             data_list[i].plot()
-            dates[i] = data_list[i].date
-            powers[i] = data_list[i].power
-            inv_tau[i] = data_list[i].inv_tau
+
+            # Saving
+            folder_results[i] = data_list[i].results
 
         # Results printing
         print(parameter + " analyzed in " + dir_name)
@@ -305,8 +303,8 @@ def analyze_folder(parameters, from_bin=0):
         save = input("Save results? (y/n) ")
         if save == 'y':
             store_name = parameter + "_vs_power.hdf5"
-            print([dates, powers, inv_tau])
-            save_folder(store_name, [dates, powers, inv_tau])
+            print(folder_results)
+            save_folder(store_name, folder_results)
 
 def load_results(parameter, inv=True,
                  load_dir='\\\\hell-fs\\STORM\\Switching\\'):
