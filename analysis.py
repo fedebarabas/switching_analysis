@@ -207,52 +207,52 @@ class Data:
             print("Can't save results, Data not fitted")
 
 
-def save_folder(store_name, results):
+def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
     """Saves the fitting results of the analysis of all files in a folder.
     results = [dates, powers, inv_tau]"""
 
     print("Saving...")
     cwd = os.getcwd()
     os.chdir(os.path.split(cwd)[0])
-    nfiles = results.size
 
     # If file doesn't exist, it's created and the datasets are added
-    try:
-        if not(os.path.isfile(store_name)):
-            store_file = hdf.File(store_name, "w")
-            store_file.create_dataset("sw_results",
-                                      data=results,
-                                      maxshape=(None,))
-        else:
-            store_file = hdf.File(store_name, "r+")
-            prev_size = store_file["sw_results"].size
+#    try:
 
-            # Check if this data was already saved
-            prev_results = store_file.value
-            # List of True and Falses indicating if the row is already present
-            # in prev_results
-            exists = [any(np.equal(prev_results.tolist(),results_i).all(1)) for results_i in results]
+    if not(os.path.isfile(store_name)):
+        store_file = hdf.File(store_name, "w")
 
-            # http://docs.scipy.org/doc/numpy/reference/generated/numpy.where.html
-            # TODO: keep going
+        store_file.create_dataset(parameter,
+                                  data=new_results,
+                                  maxshape=(None,))
 
-            if any(np.equal(data,results).all(1)):
-                print("These results where already saved, "
-                "we're not doing that again.")
+    else:
+        store_file = hdf.File(store_name, "r+")
+        prev_size = store_file[parameter].size
+        prev_results = store_file[parameter].value
 
-            else:
-                store_file["date"].resize((prev_size + nfiles,))
-                store_file["date"][prev_size:] = results[0]
-                store_file["power"].resize((prev_size + nfiles,))
-                store_file["power"][prev_size:] = results[1]
-                store_file["inv_tau"].resize((prev_size + nfiles,))
-                store_file["inv_tau"][prev_size:] = results[2]
+        # Check if any of the new results were previously saved
+        exists = np.array([np.any(prev_results==new_result) for new_result in new_results],
+                          dtype=bool)
+
+        if np.any(exists):
+            print(new_results[exists], "was previously saved in", store_name,
+                  r'/', parameter, ". We won't save it again.")
+            new_results = new_results[np.logical_not(exists)]
+
+        nfiles = new_results.size
+
+        if nfiles > 0:
+        # Change this to new way of saving
+            store_file[parameter].resize((prev_size + nfiles,))
+            store_file[parameter][prev_size:] = new_results
 
         store_file.close()
 
-    except:
-        print("Unexpected error:", sys.exc_info()[0])
-        store_file.close()
+        # TODO: Save filename & frame_rate
+
+#    except:
+#        print("Unexpected error:", sys.exc_info()[0])
+#        store_file.close()
 
     os.chdir(cwd)
 
@@ -302,9 +302,8 @@ def analyze_folder(parameters, from_bin=0):
         # If the plots are ok, Save results
         save = input("Save results? (y/n) ")
         if save == 'y':
-            store_name = parameter + "_vs_power.hdf5"
             print(folder_results)
-            save_folder(store_name, folder_results)
+            save_folder(parameter, folder_results)
 
 def load_results(parameter, inv=True,
                  load_dir='\\\\hell-fs\\STORM\\Switching\\'):
