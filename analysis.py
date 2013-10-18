@@ -7,12 +7,19 @@ Created on Wed Sep 25 17:23:02 2013
 """
 
 import os
-import sys
 import numpy as np
 import h5py as hdf
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
+# Data type for the results
+r_dtype = np.dtype([('date', int),
+                    ('frame_rate', float),
+                    ('power', int),
+                    ('inv_tau', float),
+                    ('path', 'S100')])
+
+# TODO: put this in single file mode
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
@@ -57,6 +64,9 @@ class Data:
             ~) a list of strings, containing the names of the files that
             should be considered part of the same dataset"""
 
+        # TODO: Load from dialog
+
+        os.chdir(self.dir_name)
         self.subdir = os.path.split(dir_name)[1]
         self.file_name = file_name
         self.date = int(self.subdir[0:6])
@@ -133,7 +143,8 @@ class Data:
             self.inv_tau = self.inv_tau * self.frame_rate
 
         # This will be useful later
-        self.results = (self.date, self.power, self.inv_tau)
+        self.results = (self.date, self.frame_rate,
+                        self.power, self.inv_tau, self.minipath)
 
     def plot(self):
         """Data plotting.
@@ -164,95 +175,98 @@ class Data:
 
         plt.show()
 
-    def save(self):
+    def save(self, store_name="results_vs_power.hdf5"):
         """Save in disk the results of the fitting of this instance of Data"""
 
         if self.fitted:
 
             print("Saving...")
-            os.chdir(os.path.split(os.getcwd())[0])
-            store_name = self.parameter + "_vs_power"
-            try:
-                if not(os.path.isfile(store_name)):
-                    store_file = hdf.File(store_name, "w")
-                    store_file.create_dataset("date",
-                                          data=np.array([self.date]),
-                                          maxshape=(None,))
-                    store_file.create_dataset("power",
-                                          data=np.array([self.power]),
-                                          maxshape=(None,))
-                    store_file.create_dataset("inv_tau",
-                                          data=np.array([self.inv_tau]),
+            cwd = os.getcwd()
+            os.chdir(os.path.split(cwd)[0])
+
+            # If file doesn't exist, it's created and the dataset is added
+            if not(os.path.isfile(store_name)):
+                store_file = hdf.File(store_name, "w")
+                store_file.create_dataset(self.parameter,
+                                          data=self.results,
                                           maxshape=(None,))
 
+            else:
+                store_file = hdf.File(store_name, "r+")
+
+                # If file exists but the dataset doesn't
+                if not(self.parameter in store_file):
+                    store_file.create_dataset(self.parameter,
+                                              data=self.results,
+                                              maxshape=(None,))
+
+                # If file exists and the dataset too,
+                # we check if any of the new results were previously saved
                 else:
+                    prev_size = store_file[self.parameter].size
+                    prev_results = store_file[self.parameter].value
 
-                    # TODO: Check if already saved, change shape
-                    store_file = hdf.File(store_name, "r+")
-                    prev_size = store_file["date"].size
-                    store_file["date"].resize((prev_size + 1,))
-                    store_file["date"][prev_size] = self.date
-                    store_file["power"].resize((prev_size + 1,))
-                    store_file["power"][prev_size] = self.power
-                    store_file["inv_tau"].resize((prev_size + 1,))
-                    store_file["inv_tau"][prev_size] = self.inv_tau
+                    exists = np.any(prev_results==self.results)
+                    if exists:
+                        print(self.results['path'], "was previously saved in",
+                              store_name, r'/', self.parameter,
+                              ". We won't save it again.")
 
-                store_file.close()
+                    else:
+                        store_file[self.parameter].resize((prev_size + 1,))
+                        store_file[self.parameter][prev_size] = self.results
 
-            except:
-                print("Unexpected error:", sys.exc_info()[0])
-                store_file.close()
+            store_file.close()
+
+            os.chdir(cwd)
 
         else:
             print("Can't save results, Data not fitted")
 
 
 def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
-    """Saves the fitting results of the analysis of all files in a folder.
-    results = [dates, powers, inv_tau]"""
+    """Saves the fitting results of the analysis of all files in a folder."""
 
     print("Saving...")
     cwd = os.getcwd()
     os.chdir(os.path.split(cwd)[0])
 
-    # If file doesn't exist, it's created and the datasets are added
-#    try:
-
+    # If file doesn't exist, it's created and the dataset is added
     if not(os.path.isfile(store_name)):
         store_file = hdf.File(store_name, "w")
-
-        store_file.create_dataset(parameter,
-                                  data=new_results,
-                                  maxshape=(None,))
+        store_file.create_dataset(parameter, data=new_results, maxshape=(None,))
 
     else:
         store_file = hdf.File(store_name, "r+")
-        prev_size = store_file[parameter].size
-        prev_results = store_file[parameter].value
 
-        # Check if any of the new results were previously saved
-        exists = np.array([np.any(prev_results==new_result) for new_result in new_results],
-                          dtype=bool)
+        # If file exists but the dataset doesn't
+        if not(parameter in store_file):
+            store_file.create_dataset(parameter,
+                                      data=new_results,
+                                      maxshape=(None,))
 
-        if np.any(exists):
-            print(new_results[exists], "was previously saved in", store_name,
-                  r'/', parameter, ". We won't save it again.")
-            new_results = new_results[np.logical_not(exists)]
+        # If file exists and the dataset too,
+        # we check if any of the new results were previously saved
+        else:
+            prev_size = store_file[parameter].size
+            prev_results = store_file[parameter].value
 
-        nfiles = new_results.size
+            exists = np.array([np.any(prev_results==new_result) for new_result in new_results],
+                              dtype=bool)
 
-        if nfiles > 0:
-        # Change this to new way of saving
-            store_file[parameter].resize((prev_size + nfiles,))
-            store_file[parameter][prev_size:] = new_results
+            if np.any(exists):
+                print(new_results[exists]['path'], "was previously saved in",
+                      store_name, r'/', parameter, ". We won't save it again.")
+                new_results = new_results[np.logical_not(exists)]
 
-        store_file.close()
+            # Saving truly new data
+            nfiles = new_results.size
 
-        # TODO: Save filename & frame_rate
+            if nfiles > 0:
+                store_file[parameter].resize((prev_size + nfiles,))
+                store_file[parameter][prev_size:] = new_results
 
-#    except:
-#        print("Unexpected error:", sys.exc_info()[0])
-#        store_file.close()
+    store_file.close()
 
     os.chdir(cwd)
 
@@ -280,9 +294,6 @@ def analyze_folder(parameters, from_bin=0):
         data_list = [Data() for file in file_list]
 
         # Structured array for the results of the folder
-        r_dtype = np.dtype([('date', int),
-                            ('power', int),
-                            ('inv_tau', float)])
         folder_results = np.zeros(nfiles, dtype=r_dtype)
 
         # Process all files in a loop
@@ -357,8 +368,10 @@ if __name__ == "__main__":
     first_bin = [3, 3]
 
     import switching_analysis.analysis as sw
-#    import imp
-#    imp.reload(sw)
+    import h5py as hdf
+
+    import imp
+    imp.reload(sw)
 
 
 #    dir_name, return_list = sw.load_dir()
