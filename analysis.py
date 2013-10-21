@@ -7,34 +7,35 @@ Created on Wed Sep 25 17:23:02 2013
 """
 
 import os
+
 import numpy as np
-import h5py as hdf
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+
+from tkinter import Tk, filedialog
+import h5py as hdf
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('power', int),
+                    ('intensity', float),
                     ('inv_tau', float),
                     ('path', 'S100')])
-
-# TODO: put this in single file mode
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
 def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\'):
 
-    from tkinter import Tk, filedialog
     from glob import glob
 
     # Get working folder from user
     try:
         root = Tk()
         dir_name = filedialog.askdirectory(parent=root,
-                                initialdir=initialdir,
-                                title='Please select a directory')
+                                           initialdir=initialdir,
+                                           title='Please select a directory')
         root.destroy()
         os.chdir(dir_name)
     except OSError:
@@ -57,46 +58,64 @@ def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\'):
 class Data:
     """Methods for analyzing the switching dynamics data"""
 
-    def load(self, dir_name, file_name, bins=50):
+    #def load(self, dir_name, file_name, bins=50):
+    def load(self, dir_name=None, file_name=None,
+             initialdir='\\\\hell-fs\\STORM\\Switching\\', bins=50):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
             ~) a list of strings, containing the names of the files that
             should be considered part of the same dataset"""
 
-        # TODO: Load from dialog
+        if dir_name==None:
+            # File dialog
+            root = Tk()
+            file_name = filedialog.askopenfilename(parent=root,
+                           initialdir=initialdir,
+                           title='Please select all files that have to be joined')
+            root.destroy()
+
+            # File attributes definitions
+            self.dir_name = os.path.split(file_name)[0]
+            self.file_name = os.path.split(file_name)[1]
+
+        else:
+            self.dir_name = dir_name
+            self.file_name = file_name
 
         os.chdir(self.dir_name)
-        self.subdir = os.path.split(dir_name)[1]
-        self.file_name = file_name
+        self.subdir = os.path.split(self.dir_name)[1]
         self.date = int(self.subdir[0:6])
-        self.joined = True
-        if type(file_name) is not(list):
-            file_name = [file_name]
+
+        # Joining measurements
+        if type(file_name) is list:
+            self.joined = True
+
+        else:
             self.joined = False
+            self.file_name = [self.file_name]
 
         # Paths and parameter extraction
-        self.path = [os.path.join(dir_name, file) for file in file_name]
-        self.joined = True
+        self.path = file_name
         self.nfiles = len(file_name)
         self.minipath = (self.subdir + r"/" +
-                                file_name[0][0:file_name[0].find('.') - 4])
-        self.parameter = file_name[0][file_name[0].rindex('_')
-                                                    + 1:len(file_name[0])]
-        self.power = int(file_name[0][1:file_name[0].index('_') - 2])
+                         self.file_name[0][0:self.file_name[0].find('.') - 4])
+        self.parameter = self.file_name[0][self.file_name[0].rindex('_')
+                                                    + 1:len(self.file_name[0])]
+        self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
 
         # Data loading
         dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
 
         if len(file_name) > 1:
             self.table = np.empty((1), dtype=dt)
-            for file in file_name:
+            for file in self.file_name:
                 self.table = np.concatenate((self.table,
                                              np.fromfile(file, dtype=dt)))
             self.table = self.table[1:-1]
 
         else:
-            self.table = np.fromfile(file_name, dtype=dt)
+            self.table = np.fromfile(self.file_name[0], dtype=dt)
 
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
@@ -143,8 +162,9 @@ class Data:
             self.inv_tau = self.inv_tau * self.frame_rate
 
         # This will be useful later
-        self.results = (self.date, self.frame_rate,
-                        self.power, self.inv_tau, self.minipath)
+        self.results = np.array([(self.date, self.frame_rate, self.power, 0.,
+                                  self.inv_tau, self.minipath)],
+                                  dtype=r_dtype)
 
     def plot(self):
         """Data plotting.
@@ -217,11 +237,29 @@ class Data:
                         store_file[self.parameter][prev_size] = self.results
 
             store_file.close()
+            print("Done!")
 
             os.chdir(cwd)
 
         else:
             print("Can't save results, Data not fitted")
+
+
+def analyze_file(from_bin=0):
+    """Wrapper of processes for analyzing a file"""
+
+    data = Data()
+    data.load()
+    data.fit(from_bin)
+    data.plot()
+
+    # Results printing
+    print(data.parameter + " analyzed in " + data.dir_name)
+
+    # If the plots are ok, Save results
+    save = input("Save results? (y/n) ")
+    if save == 'y':
+        data.save()
 
 
 def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
@@ -267,6 +305,7 @@ def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
                 store_file[parameter][prev_size:] = new_results
 
     store_file.close()
+    print("Done!")
 
     os.chdir(cwd)
 
@@ -313,12 +352,16 @@ def analyze_folder(parameters, from_bin=0):
         # If the plots are ok, Save results
         save = input("Save results? (y/n) ")
         if save == 'y':
-            print(folder_results)
             save_folder(parameter, folder_results)
+            print(parameter, "results saved:")
+            print(folder_results)
 
 def load_results(parameter, inv=True,
                  load_dir='\\\\hell-fs\\STORM\\Switching\\'):
     """Load results held in 'parameter'_vs_power.hdf5 file"""
+
+    ### TODO: adapt to new dtype
+    ### TODO: load calibration
 
     store_name = parameter + "_vs_power.hdf5"
     os.chdir(load_dir)
@@ -359,10 +402,7 @@ def load_results(parameter, inv=True,
 
     ### TODO: put units to work
 
-
 if __name__ == "__main__":
-
-
 
     parameter = ['ontimes', 'photons']
     first_bin = [3, 3]
@@ -372,7 +412,6 @@ if __name__ == "__main__":
 
     import imp
     imp.reload(sw)
-
 
 #    dir_name, return_list = sw.load_dir()
 
