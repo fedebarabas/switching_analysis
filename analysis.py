@@ -20,6 +20,7 @@ r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('power', int),
                     ('intensity', float),
+                    ('n_counts', (int, (1,10))),
                     ('inv_tau', float),
                     ('path', 'S100')])
 
@@ -105,17 +106,17 @@ class Data:
         self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
 
         # Data loading
+        self.n_counts = []
         dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
+        self.table = np.fromfile(self.file_name[0], dtype=dt)
 
         if len(file_name) > 1:
-            self.table = np.empty((1), dtype=dt)
-            for file in self.file_name:
-                self.table = np.concatenate((self.table,
-                                             np.fromfile(file, dtype=dt)))
-            self.table = self.table[1:-1]
+            for file in self.file_name[1,-1]:
+                new_table = np.fromfile(file, dtype=dt)
+                self.table = np.concatenate((self.table, new_table))
+                self.n_counts.append((len(new_table)))
 
-        else:
-            self.table = np.fromfile(self.file_name[0], dtype=dt)
+# TODO
 
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
