@@ -20,41 +20,57 @@ r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('power', int),
                     ('intensity', float),
-                    ('n_counts', (int, (1,10))),
+                    ('n_counts', (int, (10))),
                     ('inv_tau', float),
                     ('path', 'S100')])
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\'):
+def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\data\\'):
 
     from glob import glob
 
     # Get working folder from user
     try:
+
         root = Tk()
         dir_name = filedialog.askdirectory(parent=root,
                                            initialdir=initialdir,
                                            title='Please select a directory')
         root.destroy()
+
         os.chdir(dir_name)
+
     except OSError:
         print("No folder selected!")
 
-    # Load list of files of the required type
-    file_list = glob("*.sw_*")
+    # Get subdirectories of the chosen folder
+    subdirs = [x[0] for x in os.walk(os.getcwd())]
 
-    # Look for duplicates and put them in the same list
-    return_list = []
+    dir_names = []
+    return_lists = []
+    #for subdir in subdirs[1:-1]:
+    for subdir in subdirs:
 
-    for file in file_list:
-        matching = [s for s in file_list if file[0:file.find('.')-3] in s]
-        return_list.append(matching)
+        dir_names.append(subdir)
+        os.chdir(subdir)
 
-    return_list =  [list(t) for t in set(map(tuple, return_list))]
+        # Load list of files of the required type
+        file_list = glob("*.sw_*")
 
-    return dir_name, return_list
+        # Look for duplicates and put them in the same list
+        return_list = []
+
+        for file in file_list:
+            matching = [s for s in file_list if file[0:file.find('.')-3] in s]
+            return_list.append(matching)
+
+        return_lists.append([list(t) for t in set(map(tuple, return_list))])
+
+    os.chdir(subdirs[0])
+
+    return dir_names, return_lists
 
 class Data:
     """Methods for analyzing the switching dynamics data"""
@@ -72,8 +88,8 @@ class Data:
             # File dialog
             root = Tk()
             file_name = filedialog.askopenfilename(parent=root,
-                           initialdir=initialdir,
-                           title='Please select all files that have to be joined')
+                       initialdir=initialdir,
+                       title='Please select all files that have to be joined')
             root.destroy()
 
             # File attributes definitions
@@ -109,14 +125,13 @@ class Data:
         self.n_counts = []
         dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
         self.table = np.fromfile(self.file_name[0], dtype=dt)
+        self.n_counts.append((len(self.table)))
 
         if len(file_name) > 1:
-            for file in self.file_name[1,-1]:
+            for file in self.file_name[1:-1]:
                 new_table = np.fromfile(file, dtype=dt)
                 self.table = np.concatenate((self.table, new_table))
                 self.n_counts.append((len(new_table)))
-
-# TODO
 
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
@@ -163,8 +178,11 @@ class Data:
             self.inv_tau = self.inv_tau * self.frame_rate
 
         # This will be useful later
+        n_counts_tmp = np.zeros((10), dtype=int)
+        n_counts_tmp[0:len(self.n_counts)] = self.n_counts
+        self.n_counts = n_counts_tmp
         self.results = np.array([(self.date, self.frame_rate, self.power, 0.,
-                                  self.inv_tau, self.minipath)],
+                                  self.n_counts, self.inv_tau, self.minipath)],
                                   dtype=r_dtype)
 
     def plot(self):
@@ -294,8 +312,9 @@ def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
                               dtype=bool)
 
             if np.any(exists):
-                print(new_results[exists]['path'], "was previously saved in",
-                      store_name, r'/', parameter, ". We won't save it again.")
+                print(new_results[exists]['path'])
+                print("was previously saved in", store_name, r'/', parameter,
+                      ". We won't save it again.")
                 new_results = new_results[np.logical_not(exists)]
 
             # Saving truly new data
@@ -310,9 +329,7 @@ def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
 
     os.chdir(cwd)
 
-def analyze_folder(parameters, from_bin=0):
-
-    dir_name, files_list = load_dir()
+def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
 
     # Conversion of parameters and from_bin to list and array
     if type(parameters) is not(list):
@@ -321,41 +338,53 @@ def analyze_folder(parameters, from_bin=0):
     if from_bin == 0:
         from_bin = np.zeros((len(parameters), ))
 
-    for parameter in parameters:
+    dir_names, files_lists = load_dir()
 
-        file_list = []
-        for item in files_list:
-            file_list.append([item_i for item_i in item if
+    for dir_name in dir_names:
+
+        if len(files_lists[dir_names.index(dir_name)]) > 0:
+
+            os.chdir(dir_name)
+
+            for parameter in parameters:
+
+                file_list = []
+                for item in files_lists[dir_names.index(dir_name)]:
+                    file_list.append([item_i for item_i in item if
                                             item_i.endswith("_" + parameter)])
 
-        nfiles = len(file_list)
+                nfiles = len(file_list)
 
-        # Creation of an instance of Data() for each file
-        data_list = [Data() for file in file_list]
+                # Creation of an instance of Data() for each file
+                data_list = [Data() for file in file_list]
 
-        # Structured array for the results of the folder
-        folder_results = np.zeros(nfiles, dtype=r_dtype)
+                # Structured array for the results of the folder
+                folder_results = np.zeros(nfiles, dtype=r_dtype)
 
-        # Process all files in a loop
-        for i in range(nfiles):
+                # Process all files in a loop
+                for i in range(nfiles):
 
-            # Procedures
-            data_list[i].load(dir_name, file_list[i])
-            data_list[i].fit(from_bin[parameters.index(parameter)])
-            data_list[i].plot()
+                    # Procedures
+                    data_list[i].load(dir_name, file_list[i])
+                    data_list[i].fit(from_bin[parameters.index(parameter)])
+                    if not(quiet):
+                        data_list[i].plot()
 
-            # Saving
-            folder_results[i] = data_list[i].results
+                    # Saving
+                    folder_results[i] = data_list[i].results
 
-        # Results printing
-        print(parameter + " analyzed in " + dir_name)
+                # Results printing
+                print(parameter + " analyzed in " + dir_name)
 
-        # If the plots are ok, Save results
-        save = input("Save results? (y/n) ")
-        if save == 'y':
-            save_folder(parameter, folder_results)
-            print(parameter, "results saved:")
-            print(folder_results)
+                # If the plots are ok, Save results
+                if not(quiet):
+                    save = input("Save results? (y/n) ")
+                    if save == 'y':
+                        save_folder(parameter, folder_results)
+                        print(parameter, "results saved:")
+                        print(folder_results)
+                else:
+                    save_folder(parameter, folder_results)
 
 def load_results(parameter, inv=True,
                  load_dir='\\\\hell-fs\\STORM\\Switching\\'):
@@ -416,6 +445,6 @@ if __name__ == "__main__":
 
 #    dir_name, return_list = sw.load_dir()
 
-    sw.analyze_folder(parameter, first_bin)
+    sw.analyze_folder(parameter, first_bin, quiet=True)
     print(os.getcwd())
     sw.load_results(parameter)
