@@ -25,10 +25,13 @@ r_dtype = np.dtype([('date', int),
                     ('inv_tau', float),
                     ('path', 'S100')])
 
+initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
+results_file = 'results_vs_power.hdf5'
+
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\data\\'):
+def load_dir(initialdir=initialdir):
 
     from glob import glob
 
@@ -73,8 +76,7 @@ def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\data\\'):
 
     return dir_names, return_lists
 
-def getresults(
-    load_file='\\\\hell-fs\\STORM\\Switching\\data\\results_vs_power.hdf5'):
+def getresults(load_file=initialdir + results_file):
     """Load results held in results_vs_power.hdf5 file"""
 
     #os.chdir(load_dir)
@@ -93,8 +95,8 @@ class Data:
     """Methods for analyzing the switching dynamics data"""
 
     #def load(self, dir_name, file_name, bins=50):
-    def load(self, dir_name=None, file_name=None,
-             initialdir='\\\\hell-fs\\STORM\\Switching\\data\\', bins=50):
+    def load(self, dir_name=None, file_name=None, initialdir=initialdir, 
+             bins=50):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
@@ -245,7 +247,7 @@ class Data:
 
         plt.show()
 
-    def save(self, store_name="results_vs_power.hdf5"):
+    def save(self, store_name=results_file):
         """Save in disk the results of the fitting of this instance of Data"""
 
         if self.fitted:
@@ -314,7 +316,7 @@ def analyze_file(from_bin=0):
         data.save()
 
 
-def save_folder(parameter, new_results, store_name="results_vs_power.hdf5"):
+def save_folder(parameter, new_results, store_name=results_file):
     """Saves the fitting results of the analysis of all files in a folder."""
 
     print("Saving...")
@@ -420,11 +422,11 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                 save_folder(parameter, folder_results)
 
 
-def load_results(parameter, inv=True,
-                 load_dir='\\\\hell-fs\\STORM\\Switching\\data\\'):
+def load_results(parameter, inv=True, load_dir=initialdir, 
+                                                 results_file=results_file):
     """Plot results held in results_vs_power.hdf5 file"""
 
-    store_name = "results_vs_power.hdf5"
+    store_name = results_file
     os.chdir(load_dir)
 
     if os.path.isfile(store_name):
