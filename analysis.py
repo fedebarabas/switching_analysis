@@ -18,6 +18,7 @@ import h5py as hdf
 # Data type for the results
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
+                    ('n_frames', float),
                     ('power', int),
                     ('intensity', float),
                     ('n_counts', (int, (10))),
@@ -50,7 +51,7 @@ def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\data\\'):
 
     dir_names = []
     return_lists = []
-    #for subdir in subdirs[1:-1]:
+    #for subdir in subdirs[1:]:
     for subdir in subdirs:
 
         dir_names.append(subdir)
@@ -72,12 +73,28 @@ def load_dir(initialdir='\\\\hell-fs\\STORM\\Switching\\data\\'):
 
     return dir_names, return_lists
 
+def getresults(
+    load_file='\\\\hell-fs\\STORM\\Switching\\data\\results_vs_power.hdf5'):
+    """Load results held in results_vs_power.hdf5 file"""
+
+    #os.chdir(load_dir)
+
+    if os.path.isfile(load_file):
+
+        # Load data from HDF5 file
+        return hdf.File(load_file, "r+")
+
+    else:
+        print("File not found")
+
+        return None
+
 class Data:
     """Methods for analyzing the switching dynamics data"""
 
     #def load(self, dir_name, file_name, bins=50):
     def load(self, dir_name=None, file_name=None,
-             initialdir='\\\\hell-fs\\STORM\\Switching\\', bins=50):
+             initialdir='\\\\hell-fs\\STORM\\Switching\\data\\', bins=50):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
@@ -105,7 +122,7 @@ class Data:
         self.date = int(self.subdir[0:6])
 
         # Joining measurements
-        if type(file_name) is list:
+        if type(self.file_name) is list:
             self.joined = True
 
         else:
@@ -113,8 +130,8 @@ class Data:
             self.file_name = [self.file_name]
 
         # Paths and parameter extraction
-        self.path = file_name
-        self.nfiles = len(file_name)
+        self.path = self.file_name
+        self.nfiles = len(self.file_name)
         self.minipath = (self.subdir + r"/" +
                          self.file_name[0][0:self.file_name[0].find('.') - 4])
         self.parameter = self.file_name[0][self.file_name[0].rindex('_')
@@ -127,8 +144,8 @@ class Data:
         self.table = np.fromfile(self.file_name[0], dtype=dt)
         self.n_counts.append((len(self.table)))
 
-        if len(file_name) > 1:
-            for file in self.file_name[1:-1]:
+        if self.nfiles > 1:
+            for file in self.file_name[1:]:
                 new_table = np.fromfile(file, dtype=dt)
                 self.table = np.concatenate((self.table, new_table))
                 self.n_counts.append((len(new_table)))
@@ -145,10 +162,11 @@ class Data:
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
         self.fitted = False
 
-        # Frame rate extraction from .inf file
+        # Information extraction from .inf file
         inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
         self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-2])
+        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-2])
 
     def fit(self, fit_start=0):
         """Histogram fitting"""
@@ -159,14 +177,14 @@ class Data:
         self.fit_guess = [self.hist[0], 1 / self.mean]
 
         # Error estimation from Poisson statistics
-        sigma = np.sqrt(self.hist[self.fit_start:-1])
+        sigma = np.sqrt(self.hist[self.fit_start:])
         if 0 in sigma:
             sigma = np.asarray([1 if x == 0 else x for x in sigma])
 
         # Curve fitting
         self.fit_par, self.fit_var = curve_fit(expo,
-                                           self.bin_centres[self.fit_start:-1],
-                                           self.hist[self.fit_start:-1],
+                                           self.bin_centres[self.fit_start:],
+                                           self.hist[self.fit_start:],
                                            p0=self.fit_guess,
                                            sigma=sigma)
         self.fitted = True
@@ -177,12 +195,25 @@ class Data:
         if self.parameter in ['offtimes', 'ontimes']:
             self.inv_tau = self.inv_tau * self.frame_rate
 
-        # This will be useful later
+        store_file = getresults()
+
+        # Filling the new rows
+        intercept = store_file['calibration']['642_y_intercept'][-1]
+        slope = store_file['calibration']['642_slope'][-1]
+        area = store_file['area'].value
+        self.intensity = (intercept + self.power * slope)/(1000 * 100 * area)
+
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
         self.n_counts = n_counts_tmp
-        self.results = np.array([(self.date, self.frame_rate, self.power, 0.,
-                                  self.n_counts, self.inv_tau, self.minipath)],
+        self.results = np.array([(self.date,
+                                  self.frame_rate,
+                                  self.n_frames,
+                                  self.power,
+                                  self.intensity,
+                                  self.n_counts,
+                                  self.inv_tau,
+                                  self.minipath)],
                                   dtype=r_dtype)
 
     def plot(self):
@@ -203,8 +234,8 @@ class Data:
         # If the histogram was fit, then we plot also the fitting exponential
         if self.fitted:
             hist_fit = expo(self.bin_centres, *self.fit_par)
-            self.ax.plot(self.bin_centres[self.fit_start:-1],
-                     hist_fit[self.fit_start:-1],
+            self.ax.plot(self.bin_centres[self.fit_start:],
+                     hist_fit[self.fit_start:],
                      color='r', lw=3,
                      label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = {}\n"
                              "tau = {}\npower = {}"
@@ -223,37 +254,39 @@ class Data:
             cwd = os.getcwd()
             os.chdir(os.path.split(cwd)[0])
 
+
             # If file doesn't exist, it's created and the dataset is added
-            if not(os.path.isfile(store_name)):
-                store_file = hdf.File(store_name, "w")
+#            if not(os.path.isfile(store_name)):
+#                store_file = hdf.File(store_name, "w")
+#                store_file.create_dataset(self.parameter,
+#                                          data=self.results,
+#                                          maxshape=(None,))
+#
+#            else:
+
+            store_file = hdf.File(store_name, "r+")
+
+            # If file exists but the dataset doesn't
+            if not(self.parameter in store_file):
                 store_file.create_dataset(self.parameter,
                                           data=self.results,
                                           maxshape=(None,))
 
+            # If file exists and the dataset too,
+            # we check if any of the new results were previously saved
             else:
-                store_file = hdf.File(store_name, "r+")
+                prev_size = store_file[self.parameter].size
+                prev_results = store_file[self.parameter].value
 
-                # If file exists but the dataset doesn't
-                if not(self.parameter in store_file):
-                    store_file.create_dataset(self.parameter,
-                                              data=self.results,
-                                              maxshape=(None,))
+                exists = np.any(prev_results==self.results)
+                if exists:
+                    print(self.results['path'], "was previously saved in",
+                          store_name, r'/', self.parameter,
+                          ". We won't save it again.")
 
-                # If file exists and the dataset too,
-                # we check if any of the new results were previously saved
                 else:
-                    prev_size = store_file[self.parameter].size
-                    prev_results = store_file[self.parameter].value
-
-                    exists = np.any(prev_results==self.results)
-                    if exists:
-                        print(self.results['path'], "was previously saved in",
-                              store_name, r'/', self.parameter,
-                              ". We won't save it again.")
-
-                    else:
-                        store_file[self.parameter].resize((prev_size + 1,))
-                        store_file[self.parameter][prev_size] = self.results
+                    store_file[self.parameter].resize((prev_size + 1,))
+                    store_file[self.parameter][prev_size] = self.results
 
             store_file.close()
             print("Done!")
@@ -367,64 +400,50 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                     # Procedures
                     data_list[i].load(dir_name, file_list[i])
                     data_list[i].fit(from_bin[parameters.index(parameter)])
-                    if not(quiet):
-                        data_list[i].plot()
+#                    if not(quiet):
+                    data_list[i].plot()
+                    save = input("Save it? (y/n) ")
+                    if save=='y':
+                        folder_results[i] = data_list[i].results
 
-                    # Saving
-                    folder_results[i] = data_list[i].results
+#                    else:
+#                        folder_results[i] = data_list[i].results
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
 
-                # If the plots are ok, Save results
-                if not(quiet):
-                    save = input("Save results? (y/n) ")
-                    if save == 'y':
-                        save_folder(parameter, folder_results)
-                        print(parameter, "results saved:")
-                        print(folder_results)
-                else:
-                    save_folder(parameter, folder_results)
+                # Get valid results and save them
+                empty_line = np.zeros(1, dtype=r_dtype)
+                folder_results = folder_results[np.where(folder_results != empty_line)]
+
+                print('Saving', len(folder_results), 'out of', nfiles)
+                save_folder(parameter, folder_results)
+
 
 def load_results(parameter, inv=True,
-                 load_dir='\\\\hell-fs\\STORM\\Switching\\'):
-    """Load results held in 'parameter'_vs_power.hdf5 file"""
+                 load_dir='\\\\hell-fs\\STORM\\Switching\\data\\'):
+    """Plot results held in results_vs_power.hdf5 file"""
 
-    ### TODO: adapt to new dtype
-    ### TODO: load calibration
-
-    store_name = parameter + "_vs_power.hdf5"
+    store_name = "results_vs_power.hdf5"
     os.chdir(load_dir)
 
     if os.path.isfile(store_name):
 
         # Load data from HDF5 file
         infile = hdf.File(store_name, "r")
-        dates = infile["date"].value
-        powers = infile["power"].value
-        inv_taus = infile["inv_tau"].value
-        n_dtakes = infile["date"].size
+        results = infile[parameter].value
         infile.close()
-
-        # Reshape for better table visualization
-        np.set_printoptions(suppress=True)
-        dates_col = np.array(dates.reshape(n_dtakes, 1))
-        powers_col = np.array(powers).reshape(n_dtakes, 1)
-        inv_taus_col = np.array(inv_taus).reshape(n_dtakes, 1)
-        data = np.hstack((dates_col, powers_col, inv_taus_col))
 
         # Plot
         if inv:
 
-            plt.scatter(powers, inv_taus)
+            plt.scatter(results['intensity'], results['inv_tau'])
 
         else:
 
-            plt.scatter(powers, 1 / inv_taus)
+            plt.scatter(results['intensity'], 1 / results['inv_tau'])
 
         plt.show()
-
-        return data
 
     else:
 
@@ -438,13 +457,14 @@ if __name__ == "__main__":
     first_bin = [3, 3]
 
     import switching_analysis.analysis as sw
-    import h5py as hdf
 
     import imp
     imp.reload(sw)
 
 #    dir_name, return_list = sw.load_dir()
 
-    sw.analyze_folder(parameter, first_bin, quiet=True)
-    print(os.getcwd())
+    sw.analyze_folder(parameter, first_bin)
+
+    results = sw.getresults()
+
     sw.load_results(parameter)
