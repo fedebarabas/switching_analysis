@@ -21,8 +21,10 @@ r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('n_frames', float),
                     ('frame_size', 'S10'),
-                    ('power', int),
-                    ('intensity', float),
+                    ('power_642', int),
+                    ('intensity_642', float),
+                    ('power_405', int),
+                    ('intensity_405', float),
                     ('n_counts', (int, (10))),
                     ('inv_tau', float),
                     ('path', 'S100')])
@@ -156,6 +158,8 @@ class Data:
                 self.table = np.concatenate((self.table, new_table))
                 self.n_counts.append((len(new_table)))
 
+        self.total_counts = sum(self.n_counts)
+
         # Histogram construction
         self.mean = np.mean(self.table[self.parameter])
 
@@ -221,6 +225,8 @@ class Data:
                                   self.frame_size,
                                   self.power,
                                   self.intensity,
+                                  0,
+                                  0,
                                   self.n_counts,
                                   self.inv_tau,
                                   self.minipath)],
@@ -412,14 +418,14 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                     # Procedures
                     data_list[i].load(dir_name, file_list[i])
                     data_list[i].fit(from_bin[parameters.index(parameter)])
-#                    if not(quiet):
-                    data_list[i].plot()
-                    save = input("Save it? (y/n) ")
-                    if save=='y':
-                        folder_results[i] = data_list[i].results
+                    if not(quiet):
+                        data_list[i].plot()
+                        save = input("Save it? (y/n) ")
+                        if save=='y':
+                            folder_results[i] = data_list[i].results
 
-#                    else:
-#                        folder_results[i] = data_list[i].results
+                    elif data_list[i].total_counts > 200:
+                        folder_results[i] = data_list[i].results
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
@@ -450,7 +456,7 @@ def load_results(parameter, inv=True, load_dir=initialdir,
         fig, ax = plt.subplots()
 
         if inv:
-            plt.scatter(results['intensity'], results['inv_tau'])
+            plt.scatter(results['intensity_642'], results['inv_tau'])
             ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
             if parameter=="ontimes":
                 ax.set_ylabel("Off rate [s^-1]")
@@ -458,11 +464,11 @@ def load_results(parameter, inv=True, load_dir=initialdir,
                 ax.set_ylabel("On rate [s^-1]")
 
         else:
-            plt.scatter(results['intensity'], 1 / results['inv_tau'])
+            plt.scatter(results['intensity_642'], 1 / results['inv_tau'])
             ax.set_ylabel(parameter)
 
         ax.set_xlabel("Intensity [kW/cm^2]")
-        ax.set_xlim(0, ceil(results['intensity'].max()))
+        ax.set_xlim(0, ceil(results['intensity_642'].max()))
 
         ax.grid(True)
         plt.show()
