@@ -8,6 +8,7 @@ Created on Wed Sep 25 17:23:02 2013
 
 import os
 
+from math import ceil
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
@@ -19,6 +20,7 @@ import h5py as hdf
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('n_frames', float),
+                    ('frame_size', 'S10'),
                     ('power', int),
                     ('intensity', float),
                     ('n_counts', (int, (10))),
@@ -76,15 +78,15 @@ def load_dir(initialdir=initialdir):
 
     return dir_names, return_lists
 
-def getresults(load_file=initialdir + results_file):
+def getresults(load_dir=initialdir, load_file=results_file):
     """Load results held in results_vs_power.hdf5 file"""
 
     #os.chdir(load_dir)
 
-    if os.path.isfile(load_file):
+    if os.path.isfile(load_dir + load_file):
 
         # Load data from HDF5 file
-        return hdf.File(load_file, "r+")
+        return hdf.File(load_dir + load_file, "r+")
 
     else:
         print("File not found")
@@ -95,13 +97,15 @@ class Data:
     """Methods for analyzing the switching dynamics data"""
 
     #def load(self, dir_name, file_name, bins=50):
-    def load(self, dir_name=None, file_name=None, initialdir=initialdir, 
+    def load(self, dir_name=None, file_name=None, initialdir=initialdir,
              bins=50):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
             ~) a list of strings, containing the names of the files that
             should be considered part of the same dataset"""
+
+        self.bins = bins
 
         if dir_name==None:
             # File dialog
@@ -167,8 +171,11 @@ class Data:
         # Information extraction from .inf file
         inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
-        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-2])
-        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-2])
+        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
+        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
+        self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:-1] + 'x' +
+                                    inf_data[8][inf_data[8].find('=') + 1:-1])
+
 
     def fit(self, fit_start=0):
         """Histogram fitting"""
@@ -211,6 +218,7 @@ class Data:
         self.results = np.array([(self.date,
                                   self.frame_rate,
                                   self.n_frames,
+                                  self.frame_size,
                                   self.power,
                                   self.intensity,
                                   self.n_counts,
@@ -228,10 +236,12 @@ class Data:
                     label='_nolegend_')
         self.ax.set_xlabel(self.parameter)
         self.ax.grid(True)
-        self.ax.text(0.75 * self.ax.get_xlim()[1], 0.2 * self.ax.get_ylim()[1],
-        "Number of counts:\n" + str(self.table.size),
-                    horizontalalignment='center', verticalalignment='center',
-                    bbox=dict(facecolor='white'))
+        self.ax.text(0.75 * self.bins * self.bin_width,
+                     0.2 * self.ax.get_ylim()[1],
+                     "Number of counts:\n" + str(self.table.size),
+                     horizontalalignment='center', verticalalignment='center',
+                     bbox=dict(facecolor='white'))
+        self.ax.set_xlim(0, self.bins * self.bin_width)
 
         # If the histogram was fit, then we plot also the fitting exponential
         if self.fitted:
@@ -422,7 +432,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                 save_folder(parameter, folder_results)
 
 
-def load_results(parameter, inv=True, load_dir=initialdir, 
+def load_results(parameter, inv=True, load_dir=initialdir,
                                                  results_file=results_file):
     """Plot results held in results_vs_power.hdf5 file"""
 
@@ -437,14 +447,24 @@ def load_results(parameter, inv=True, load_dir=initialdir,
         infile.close()
 
         # Plot
-        if inv:
+        fig, ax = plt.subplots()
 
+        if inv:
             plt.scatter(results['intensity'], results['inv_tau'])
+            ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
+            if parameter=="ontimes":
+                ax.set_ylabel("Off rate [s^-1]")
+            else:
+                ax.set_ylabel("On rate [s^-1]")
 
         else:
-
             plt.scatter(results['intensity'], 1 / results['inv_tau'])
+            ax.set_ylabel(parameter)
 
+        ax.set_xlabel("Intensity [kW/cm^2]")
+        ax.set_xlim(0, ceil(results['intensity'].max()))
+
+        ax.grid(True)
         plt.show()
 
     else:
@@ -455,7 +475,7 @@ def load_results(parameter, inv=True, load_dir=initialdir,
 
 if __name__ == "__main__":
 
-    parameter = ['ontimes', 'photons']
+    parameter = ['ontimes']
     first_bin = [3, 3]
 
     import switching_analysis.analysis as sw
@@ -469,4 +489,4 @@ if __name__ == "__main__":
 
     results = sw.getresults()
 
-    sw.load_results(parameter)
+    sw.load_results(parameter[0])
