@@ -211,9 +211,8 @@ class Data:
         store_file = getresults()
 
         # Filling the new rows
-        index = np.argmax(store_file['calibration']['init_date'] > self.date)
-        intercept = store_file['calibration']['642_y_intercept'][index - 1]
-        slope = store_file['calibration']['642_slope'][index - 1]
+        intercept = store_file['calibration']['642_y_intercept'][-1]
+        slope = store_file['calibration']['642_slope'][-1]
         area = store_file['area'].value
         self.intensity = (intercept + self.power * slope)/(1000 * 100 * area)
 
@@ -261,13 +260,6 @@ class Data:
                      .format(int(self.amplitude), self.inv_tau,
                              1 / self.inv_tau, self.power))
             self.ax.legend()
-
-            # Print filter indicators
-            print("total_counts (200) =", self.total_counts)
-            mean_pos = 1 / (self.inv_tau * self.bin_width)
-            if self.parameter in ['offtimes', 'ontimes']:
-                mean_pos = mean_pos * self.frame_rate
-            print("mean_pos (1.2) =", mean_pos)
 
         plt.show()
 
@@ -432,16 +424,8 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                         if save=='y':
                             folder_results[i] = data_list[i].results
 
-                    # Conditions for automatic saving: min total_counts and
-                    # min bin position of fitting mean
-                    else:
-                        min_total_counts = data_list[i].total_counts
-                        mean_pos = (1 /
-                            (data_list[i].inv_tau * data_list[i].bin_width))
-                        if data_list[i].parameter in ['offtimes', 'ontimes']:
-                            mean_pos = mean_pos * data_list[i].frame_rate
-                        if (min_total_counts > 200 and mean_pos > 1.2):
-                            folder_results[i] = data_list[i].results
+                    elif data_list[i].total_counts > 200:
+                        folder_results[i] = data_list[i].results
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
@@ -449,7 +433,6 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                 # Get valid results and save them
                 empty_line = np.zeros(1, dtype=r_dtype)
                 folder_results = folder_results[np.where(folder_results != empty_line)]
-                folder_results.sort(order=('date', 'power_642'))
 
                 print('Saving', len(folder_results), 'out of', nfiles)
                 save_folder(parameter, folder_results)
@@ -503,10 +486,12 @@ if __name__ == "__main__":
 
     import switching_analysis.analysis as sw
 
-    sw.analyze_folder(parameter, first_bin)
-
     import imp
     imp.reload(sw)
+
+#    dir_name, return_list = sw.load_dir()
+
+    sw.analyze_folder(parameter, first_bin)
 
     results = sw.getresults()
 
