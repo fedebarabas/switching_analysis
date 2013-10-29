@@ -27,6 +27,7 @@ r_dtype = np.dtype([('date', int),
                     ('intensity_405', float),
                     ('n_counts', (int, (10))),
                     ('inv_tau', float),
+                    ('hist_mean', float),
                     ('path', 'S100')])
 
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
@@ -34,6 +35,9 @@ results_file = 'results_vs_power_3.hdf5'
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
+
+def logarithm(x, A, B):
+    return A * np.log(B * x)
 
 def load_dir(initialdir=initialdir):
 
@@ -146,6 +150,14 @@ class Data:
                                                     + 1:len(self.file_name[0])]
         self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
 
+        # Information extraction from .inf file
+        inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
+        inf_data = np.loadtxt(inf_name, dtype=str)
+        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
+        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
+        self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:-1] + 'x' +
+                                    inf_data[8][inf_data[8].find('=') + 1:-1])
+
         # Data loading
         self.n_counts = []
         dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
@@ -171,15 +183,6 @@ class Data:
                                             range=(0, bins * self.bin_width))
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
         self.fitted = False
-
-        # Information extraction from .inf file
-        inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
-        inf_data = np.loadtxt(inf_name, dtype=str)
-        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
-        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
-        self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:-1] + 'x' +
-                                    inf_data[8][inf_data[8].find('=') + 1:-1])
-
 
     def fit(self, fit_start=0):
         """Histogram fitting"""
@@ -207,6 +210,8 @@ class Data:
         self.inv_tau = self.fit_par[1]
         if self.parameter in ['offtimes', 'ontimes']:
             self.inv_tau = self.inv_tau * self.frame_rate
+            self.mean = self.mean / self.frame_rate
+
 
         store_file = getresults()
 
@@ -230,6 +235,7 @@ class Data:
                                   0,
                                   self.n_counts,
                                   self.inv_tau,
+                                  self.mean,
                                   self.minipath)],
                                   dtype=r_dtype)
 
@@ -268,6 +274,8 @@ class Data:
             if self.parameter in ['offtimes', 'ontimes']:
                 mean_pos = mean_pos * self.frame_rate
             print("mean_pos (1.2) =", mean_pos)
+            print("hist_mean", self.mean)
+            print("hist_mean sobre fr", self.mean / self.frame_rate)
 
         plt.show()
 
@@ -451,12 +459,15 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                 folder_results = folder_results[np.where(folder_results != empty_line)]
                 folder_results.sort(order=('date', 'power_642'))
 
-                print('Saving', len(folder_results), 'out of', nfiles)
-                save_folder(parameter, folder_results)
+                if len(folder_results) > 0:
+                    print('Saving', len(folder_results), 'out of', nfiles)
+                    save_folder(parameter, folder_results)
 
+                else:
+                    print("No data to save")
 
-def load_results(parameter, inv=True, load_dir=initialdir,
-                                                 results_file=results_file):
+def load_results(parameter, load_dir=initialdir, results_file=results_file,
+                 mean=False, fit=True):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -472,16 +483,48 @@ def load_results(parameter, inv=True, load_dir=initialdir,
         # Plot
         fig, ax = plt.subplots()
 
-        if inv:
-            plt.scatter(results['intensity_642'], results['inv_tau'])
-            ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
-            if parameter=="ontimes":
-                ax.set_ylabel("Off rate [s^-1]")
+        if parameter=="ontimes":
+            if mean:
+                plt.scatter(results['intensity_642'], 1 / results['hist_mean'])
+
             else:
-                ax.set_ylabel("On rate [s^-1]")
+                plt.scatter(results['intensity_642'], results['inv_tau'])
+                if fit:
+                    # Curve fitting
+                    fit_guess = [100, 100]
+                    fit_par, fit_var = curve_fit(logarithm,
+                                                 results['intensity_642'],
+                                                 results['inv_tau'],
+                                                 p0=fit_guess)
+                    log_fit = logarithm(results['intensity_642'], *fit_par)
+                    ax.plot(results['intensity_642'], log_fit, color='r', lw=3,
+                    label="y = A * ln(- B * x)\nA = {}\nB = {}\n"
+                    .format(fit_par[0], fit_par[1]))
+                    ax.legend()
+
+
+            ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
+            ax.set_ylabel("Off rate [s^-1]")
+
+
+
+        elif parameter=="offtimes":
+            if mean:
+                plt.scatter(results['intensity_642'], 1 / results['hist_mean'])
+
+            else:
+                plt.scatter(results['intensity_642'], results['inv_tau'])
+
+            ax.set_ylabel("On rate [s^-1]")
 
         else:
-            plt.scatter(results['intensity_642'], 1 / results['inv_tau'])
+            if mean:
+                plt.scatter(results['intensity_642'], results['hist_mean'])
+
+            else:
+                plt.scatter(results['intensity_642'], 1 / results['inv_tau'])
+                ax.set_ylim(0, int(ceil(results['hist_mean'].max() / 2000.0)) * 2000)
+
             ax.set_ylabel(parameter)
 
         ax.set_xlabel("Intensity [kW/cm^2]")
@@ -498,12 +541,12 @@ def load_results(parameter, inv=True, load_dir=initialdir,
 
 if __name__ == "__main__":
 
-    parameter = ['ontimes']
+    parameter = ['ontimes', 'photons']
     first_bin = [3, 3]
 
     import switching_analysis.analysis as sw
 
-    sw.analyze_folder(parameter, first_bin)
+    sw.analyze_folder(parameter, first_bin, quiet=True)
 
     import imp
     imp.reload(sw)
