@@ -6,6 +6,8 @@ Created on Wed Sep 25 17:23:02 2013
 @author: Federico Barabas
 """
 
+from __future__ import division, with_statement, print_function
+
 import os
 
 from math import ceil
@@ -31,13 +33,13 @@ r_dtype = np.dtype([('date', int),
                     ('path', 'S100')])
 
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power_3.hdf5'
+results_file = 'results_vs_power.hdf5'
 
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
-def logarithm(x, A, B):
-    return A * np.log(B * x)
+def hyperbolic(x, A, B):
+    return A * x / (1 + B * x)
 
 def load_dir(initialdir=initialdir):
 
@@ -396,7 +398,17 @@ def save_folder(parameter, new_results, store_name=results_file):
 
     os.chdir(cwd)
 
-def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
+def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
+
+    # Saving thresholds
+    if save_all:
+        min_counts = 10
+        min_mean_pos = 0
+
+    else:
+        min_counts = 200
+        min_mean_pos = 1.2
+
 
     # Conversion of parameters and from_bin to list and array
     if type(parameters) is not(list):
@@ -448,7 +460,8 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                             (data_list[i].inv_tau * data_list[i].bin_width))
                         if data_list[i].parameter in ['offtimes', 'ontimes']:
                             mean_pos = mean_pos * data_list[i].frame_rate
-                        if (min_total_counts > 200 and mean_pos > 1.2):
+                        if (min_total_counts > min_counts and
+                            mean_pos > min_mean_pos):
                             folder_results[i] = data_list[i].results
 
                 # Results printing
@@ -467,7 +480,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, recursive=True):
                     print("No data to save")
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
-                 mean=False, fit=True):
+                 mean=False, fit=True, interval=None):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -482,28 +495,39 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         # Plot
         fig, ax = plt.subplots()
+        x_data = results['intensity_642']
+        if mean:
+            y_data = 1 / results['hist_mean']
+        else:
+            y_data = results['inv_tau']
+
+        ### TODO: sort
+        data = np.array([x_data, y_data]).sort()
 
         if parameter=="ontimes":
-            if mean:
-                plt.scatter(results['intensity_642'], 1 / results['hist_mean'])
+            plt.scatter(data[0], data[1])
+
+            if fit:
+                # Curve fitting
+                fit_guess = [100, 100]
+
+                fit_par, fit_var = curve_fit(hyperbolic,
+                                             results['intensity_642'],
+                                             results['inv_tau'],
+                                             p0=fit_guess)
+                log_fit = hyperbolic(results['intensity_642'], *fit_par)
+                ax.plot(results['intensity_642'], log_fit, color='r', lw=3,
+                label="y = A * ln(- B * x)\nA = {}\nB = {}\n"
+                .format(fit_par[0], fit_par[1]))
+                ax.legend()
+
+
+            if interval == None:
+                ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
 
             else:
-                plt.scatter(results['intensity_642'], results['inv_tau'])
-                if fit:
-                    # Curve fitting
-                    fit_guess = [100, 100]
-                    fit_par, fit_var = curve_fit(logarithm,
-                                                 results['intensity_642'],
-                                                 results['inv_tau'],
-                                                 p0=fit_guess)
-                    log_fit = logarithm(results['intensity_642'], *fit_par)
-                    ax.plot(results['intensity_642'], log_fit, color='r', lw=3,
-                    label="y = A * ln(- B * x)\nA = {}\nB = {}\n"
-                    .format(fit_par[0], fit_par[1]))
-                    ax.legend()
+                ax.set_ylim(interval[0], interval[1])
 
-
-            ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
             ax.set_ylabel("Off rate [s^-1]")
 
 
@@ -523,7 +547,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             else:
                 plt.scatter(results['intensity_642'], 1 / results['inv_tau'])
-                ax.set_ylim(0, int(ceil(results['hist_mean'].max() / 2000.0)) * 2000)
+
+            if interval != None:
+                ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel(parameter)
 
@@ -541,16 +567,20 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
 if __name__ == "__main__":
 
-    parameter = ['ontimes', 'photons']
-    first_bin = [3, 3]
+    parameter = ['ontimes', 'photons', 'transitions']
+    first_bin = [3, 3, 2]
 
     import switching_analysis.analysis as sw
 
-    sw.analyze_folder(parameter, first_bin, quiet=True)
+    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
     import imp
     imp.reload(sw)
 
+#%load_ext autoreload
+#%autoreload 2
+
+
     results = sw.getresults()
 
-    sw.load_results(parameter[0])
+    sw.load_results(parameter[0], interval=(0,80))
