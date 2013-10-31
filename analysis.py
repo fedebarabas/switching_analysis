@@ -39,7 +39,7 @@ def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
 def hyperbolic(x, A, B):
-    return A * x / (1 + B * x)
+    return A * x / (1 + x/B)
 
 def load_dir(initialdir=initialdir):
 
@@ -501,29 +501,34 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         else:
             y_data = results['inv_tau']
 
-        ### TODO: sort
-        data = np.array([x_data, y_data]).sort()
+        y_data = y_data[np.argsort(x_data)]
+        x_data.sort()
 
         if parameter=="ontimes":
-            plt.scatter(data[0], data[1])
+            plt.scatter(x_data, y_data)
 
+            # Curve fitting
             if fit:
-                # Curve fitting
-                fit_guess = [100, 100]
 
-                fit_par, fit_var = curve_fit(hyperbolic,
-                                             results['intensity_642'],
-                                             results['inv_tau'],
-                                             p0=fit_guess)
-                log_fit = hyperbolic(results['intensity_642'], *fit_par)
-                ax.plot(results['intensity_642'], log_fit, color='r', lw=3,
-                label="y = A * ln(- B * x)\nA = {}\nB = {}\n"
-                .format(fit_par[0], fit_par[1]))
-                ax.legend()
+                init_slope = 100
+                guess = [init_slope, y_data.max() / init_slope ]
 
+                fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
+                                             p0=guess)
+
+
+                # Fit curve
+                log_fit = hyperbolic(x_data, *fit_par)
+                ax.plot(x_data, log_fit, color='r', lw=3,
+                label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
+                .format(np.int(np.round(fit_par[0])),
+                        np.int(np.round(np.sqrt(fit_var[0][0]))),
+                        np.int(np.round(fit_par[1])),
+                        np.int(np.round(np.sqrt(fit_var[1][1])))))
+                ax.legend(loc=4)
 
             if interval == None:
-                ax.set_ylim(0, int(ceil(results['inv_tau'].max() / 100.0)) * 100)
+                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
 
             else:
                 ax.set_ylim(interval[0], interval[1])
