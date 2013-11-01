@@ -5,7 +5,7 @@ Created on Wed Sep 25 17:23:02 2013
 
 @author: Federico Barabas
 """
-
+# Python2-3 compatibility, not tested
 from __future__ import division, with_statement, print_function
 
 import os
@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-from tkinter import Tk, filedialog
+from Tkinter import Tk, filedialog
 import h5py as hdf
 
 # Data type for the results
@@ -516,15 +516,18 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
                                              p0=guess)
 
+                # Get the sigma of parameters from covariance matrix
+                fit_sigma = np.sqrt(fit_var.diagonal())
 
-                # Fit curve
+
+                # Fitting curve plotting
                 log_fit = hyperbolic(x_data, *fit_par)
                 ax.plot(x_data, log_fit, color='r', lw=3,
                 label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
                 .format(np.int(np.round(fit_par[0])),
-                        np.int(np.round(np.sqrt(fit_var[0][0]))),
+                        np.int(np.round(fit_sigma[0])),
                         np.int(np.round(fit_par[1])),
-                        np.int(np.round(np.sqrt(fit_var[1][1])))))
+                        np.int(np.round(fit_sigma[1]))))
                 ax.legend(loc=4)
 
             if interval == None:
@@ -577,15 +580,11 @@ if __name__ == "__main__":
 
     import switching_analysis.analysis as sw
 
-    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
+#    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-    import imp
-    imp.reload(sw)
+#    import imp
+#    imp.reload(sw)
 
-#%load_ext autoreload
-#%autoreload 2
+#    results = sw.getresults()
 
-
-    results = sw.getresults()
-
-    sw.load_results(parameter[0], interval=(0,80))
+    sw.load_results(parameter[0])
