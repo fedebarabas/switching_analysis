@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-from Tkinter import Tk, filedialog
+from tkinter import Tk, filedialog
 import h5py as hdf
 
 # Data type for the results
@@ -218,11 +218,13 @@ class Data:
         store_file = getresults()
 
         # Filling the new rows
-        index = np.argmax(store_file['calibration']['init_date'] > self.date)
-        intercept = store_file['calibration']['642_y_intercept'][index - 1]
-        slope = store_file['calibration']['642_slope'][index - 1]
-        area = store_file['area'].value
-        self.intensity = (intercept + self.power * slope)/(1000 * 100 * area)
+        index = np.argmax(store_file['laser_calibration']['date'] > self.date)
+        intercept = store_file['laser_calibration']['642_y_intercept'][index - 1]
+        slope = store_file['laser_calibration']['642_slope'][index - 1]
+        self.intensity = intercept + self.power * slope
+
+#        if self.parameter in ['photons', 'totalphotons']:
+
 
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
@@ -524,14 +526,14 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 log_fit = hyperbolic(x_data, *fit_par)
                 ax.plot(x_data, log_fit, color='r', lw=3,
                 label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
-                .format(np.int(np.round(fit_par[0])),
-                        np.int(np.round(fit_sigma[0])),
-                        np.int(np.round(fit_par[1])),
-                        np.int(np.round(fit_sigma[1]))))
+                .format(np.round(fit_par[0], 1),
+                        np.round(fit_sigma[0], 1),
+                        np.round(fit_par[1], 1),
+                        np.round(fit_sigma[1], 1)))
                 ax.legend(loc=4)
 
             if interval == None:
-                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
+                ax.set_ylim(0, int(ceil(y_data.max() / 100.0) + 1) * 100)
 
             else:
                 ax.set_ylim(interval[0], interval[1])
@@ -562,7 +564,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.set_ylabel(parameter)
 
         ax.set_xlabel("Intensity [kW/cm^2]")
-        ax.set_xlim(0, ceil(results['intensity_642'].max()))
+        ax.set_xlim(0, int(ceil(results['intensity_642'].max()) / 10 + 1) * 10)
 
         ax.grid(True)
         plt.show()
@@ -582,9 +584,11 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
+    sw.analyze_folder(parameter[0], first_bin, quiet=True)
+
 #    import imp
 #    imp.reload(sw)
 
-#    results = sw.getresults()
+#    results = sw.getresults(load_file='results_vs_power_empty2.hdf5')
 
-    sw.load_results(parameter[0])
+#    sw.load_results(parameter[0])
