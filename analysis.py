@@ -35,6 +35,18 @@ r_dtype = np.dtype([('date', int),
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
 results_file = 'results_vs_power.hdf5'
 
+
+# CCD relative sensibility
+ccd_dtype = np.dtype([('DU860', float),
+                    ('DU897', float)])
+ccd_sens = np.zeros(11, dtype=ccd_dtype)
+ccd_sens['DU860'][10] = 1.56
+ccd_sens['DU860'][5] = 1.22
+ccd_sens['DU860'][3] = 1.17
+ccd_sens['DU897'][10] = 1.17
+ccd_sens['DU897'][5] = 1.04
+ccd_sens['DU897'][3] = 1
+
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
 
@@ -158,7 +170,11 @@ class Data:
         self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
         self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
         self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:-1] + 'x' +
-                                    inf_data[8][inf_data[8].find('=') + 1:-1])
+                           inf_data[8][inf_data[8].find('=') + 1:-1])
+        self.camera = (inf_data[10][inf_data[10].find('=') + 1:
+                       inf_data[10].find('_', inf_data[10].find('='))])
+        self.hs_speed = int((inf_data[11][inf_data[11].find('=') + 1:
+                             inf_data[11].find('_', inf_data[11].find('='))]))
 
         # Data loading
         self.n_counts = []
@@ -223,8 +239,10 @@ class Data:
         slope = store_file['laser_calibration']['642_slope'][index - 1]
         self.intensity = intercept + self.power * slope
 
-#        if self.parameter in ['photons', 'totalphotons']:
-
+        if self.parameter in ['photons', 'totalphotons']:
+            ccd_factor = ccd_sens[self.camera][self.hs_speed]
+            self.inv_tau = self.inv_tau / ccd_factor
+            self.mean = self.mean * ccd_factor
 
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
@@ -512,7 +530,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             # Curve fitting
             if fit:
 
-                init_slope = 100
+                init_slope = 10
                 guess = [init_slope, y_data.max() / init_slope ]
 
                 fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
