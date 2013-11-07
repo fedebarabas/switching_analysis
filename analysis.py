@@ -306,7 +306,6 @@ class Data:
 
         if self.fitted:
 
-            print("Saving...")
             cwd = os.getcwd()
             os.chdir(os.path.split(cwd)[0])
 
@@ -373,7 +372,6 @@ def analyze_file(from_bin=0):
 def save_folder(parameter, new_results, store_name=results_file):
     """Saves the fitting results of the analysis of all files in a folder."""
 
-    print("Saving...")
     cwd = os.getcwd()
     os.chdir(os.path.split(cwd)[0])
 
@@ -493,7 +491,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
                 folder_results.sort(order=('date', 'power_642'))
 
                 if len(folder_results) > 0:
-                    print('Saving', len(folder_results), 'out of', nfiles)
+                    print('Saving', len(folder_results), 'out of', nfiles, '...')
                     save_folder(parameter, folder_results)
 
                 else:
@@ -595,8 +593,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
 if __name__ == "__main__":
 
-    parameter = ['ontimes', 'photons', 'transitions']
-    first_bin = [3, 3, 2]
+    parameter = ['ontimes', 'photons', 'totalphotons', 'transitions']
+    first_bin = [3, 3, 3, 3]
 
     import switching_analysis.analysis as sw
 
@@ -607,6 +605,6 @@ if __name__ == "__main__":
 #    import imp
 #    imp.reload(sw)
 
-#    results = sw.getresults(load_file='results_vs_power_empty2.hdf5')
+#    results = sw.getresults(load_file='results_vs_power.hdf5')
 
 #    sw.load_results(parameter[0])
