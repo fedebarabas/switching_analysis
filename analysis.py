@@ -502,7 +502,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 date_i=0, date_e=990000):
+                 dates=[0, 990000]):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -515,10 +515,13 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         results = infile[parameter].value
         infile.close()
 
+        # Define subset of data
         results.sort(order=['date', 'intensity_642'])
-        init = np.argmax(results['date'] == date_i)
-        if date_e < results['date'][-1]:
-            end = np.argmax(results['date'] > date_e)
+        if not(dates is list):
+            dates = [dates, dates]
+        init = np.argmax(results['date'] == dates[0])
+        if dates[1] < results['date'][-1]:
+            end = np.argmax(results['date'] > dates[1])
         else:
             end = results['date'][-1]
 
