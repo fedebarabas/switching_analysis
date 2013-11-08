@@ -53,6 +53,9 @@ def expo(x, A, inv_tau):
 def hyperbolic(x, A, B):
     return A * x / (1 + x/B)
 
+def linear(x, A):
+    return A * x
+
 def load_dir(initialdir=initialdir):
 
     from glob import glob
@@ -498,7 +501,8 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
                     print("No data to save")
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
-                 mean=False, fit=True, interval=None):
+                 mean=False, fit=None, fit_end=None, interval=None,
+                 date_i=0, date_e=990000):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -511,13 +515,20 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         results = infile[parameter].value
         infile.close()
 
+        results.sort(order=['date', 'intensity_642'])
+        init = np.argmax(results['date'] == date_i)
+        if date_e < results['date'][-1]:
+            end = np.argmax(results['date'] > date_e)
+        else:
+            end = results['date'][-1]
+
         # Plot
         fig, ax = plt.subplots()
-        x_data = results['intensity_642']
+        x_data = results['intensity_642'][init:end]
         if mean:
-            y_data = 1 / results['hist_mean']
+            y_data = 1 / results['hist_mean'][init:end]
         else:
-            y_data = results['inv_tau']
+            y_data = results['inv_tau'][init:end]
 
         y_data = y_data[np.argsort(x_data)]
         x_data.sort()
@@ -525,8 +536,19 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         if parameter=="ontimes":
             plt.scatter(x_data, y_data)
 
+            if interval == None:
+                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
+
+            else:
+                ax.set_ylim(interval[0], interval[1])
+
+            ax.set_ylabel("Off rate [s^-1]")
+            ax.set_xlabel("Intensity [kW/cm^2]")
+            ax.set_xlim(0, int(ceil(x_data.max()) / 10 + 1) * 10)
+            ax.grid(True)
+
             # Curve fitting
-            if fit:
+            if fit=='hyperbolic':
 
                 init_slope = 10
                 guess = [init_slope, y_data.max() / init_slope ]
@@ -537,10 +559,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 # Get the sigma of parameters from covariance matrix
                 fit_sigma = np.sqrt(fit_var.diagonal())
 
-
                 # Fitting curve plotting
-                log_fit = hyperbolic(x_data, *fit_par)
-                ax.plot(x_data, log_fit, color='r', lw=3,
+                fit_func = hyperbolic(x_data, *fit_par)
+                ax.plot(x_data, fit_func, color='r', lw=3,
                 label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
                 .format(np.round(fit_par[0], 1),
                         np.round(fit_sigma[0], 1),
@@ -548,14 +569,23 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                         np.round(fit_sigma[1], 1)))
                 ax.legend(loc=4)
 
-            if interval == None:
-                ax.set_ylim(0, int(ceil(y_data.max() / 100.0) + 1) * 100)
+            elif fit=='linear':
+                if fit_end != None:
+                    end = np.argmax(x_data > fit_end)
+                    x_data = x_data[:end]
+                    y_data = y_data[:end]
 
-            else:
-                ax.set_ylim(interval[0], interval[1])
+                guess = [y_data.max() / x_data.max()]
+                fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
+                fit_sigma = np.sqrt(fit_var[0])
 
-            ax.set_ylabel("Off rate [s^-1]")
-
+                # Fitting curve plotting
+                fit_func = linear(x_data, *fit_par)
+                ax.plot(x_data, fit_func, color='r', lw=3,
+                label="y = A * x\nA = {} pm {}"
+                .format(np.round(fit_par[0], 1),
+                        np.round(fit_sigma[0], 1)))
+                ax.legend(loc=4)
 
 
         elif parameter=="offtimes":
@@ -579,10 +609,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             ax.set_ylabel(parameter)
 
-        ax.set_xlabel("Intensity [kW/cm^2]")
-        ax.set_xlim(0, int(ceil(results['intensity_642'].max()) / 10 + 1) * 10)
 
-        ax.grid(True)
         plt.show()
 
     else:
