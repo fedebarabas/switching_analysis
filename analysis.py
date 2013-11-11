@@ -516,8 +516,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         infile.close()
 
         # Define subset of data
+#        if dates
         results.sort(order=['date', 'intensity_642'])
-        if not(dates is list):
+        if not(type(dates) is list):
             dates = [dates, dates]
         init = np.argmax(results['date'] == dates[0])
         if dates[1] < results['date'][-1]:
