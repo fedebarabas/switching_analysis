@@ -33,7 +33,7 @@ r_dtype = np.dtype([('date', int),
                     ('path', 'S100')])
 
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power.hdf5'
+results_file = 'results_vs_power2.hdf5'
 
 
 # CCD relative sensibility
@@ -219,20 +219,26 @@ class Data:
             sigma = np.asarray([1 if x == 0 else x for x in sigma])
 
         # Curve fitting
-        self.fit_par, self.fit_var = curve_fit(expo,
-                                           self.bin_centres[self.fit_start:],
-                                           self.hist[self.fit_start:],
-                                           p0=self.fit_guess,
-                                           sigma=sigma)
-        self.fitted = True
+        try:
+            self.fit_par, self.fit_var = curve_fit(expo,
+                                               self.bin_centres[self.fit_start:],
+                                               self.hist[self.fit_start:],
+                                               p0=self.fit_guess,
+                                               sigma=sigma)
+            self.fitted = True
 
-        # Method definitions to make it more verbose
-        self.amplitude = self.fit_par[0]
-        self.inv_tau = self.fit_par[1]
-        if self.parameter in ['offtimes', 'ontimes']:
-            self.inv_tau = self.inv_tau * self.frame_rate
-            self.mean = self.mean / self.frame_rate
+            # Method definitions to make it more verbose
+            self.amplitude = self.fit_par[0]
+            self.inv_tau = self.fit_par[1]
+            if self.parameter in ['offtimes', 'ontimes']:
+                self.inv_tau = self.inv_tau * self.frame_rate
+                self.mean = self.mean / self.frame_rate
 
+        except RuntimeError:
+            print("Fit didn't converge for", self.file_name)
+            self.fitted = False
+            self.amplitude = 0
+            self.inv_tau = 0
 
         store_file = getresults()
 
@@ -467,6 +473,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
                     # Procedures
                     data_list[i].load(dir_name, file_list[i])
                     data_list[i].fit(from_bin[parameters.index(parameter)])
+
                     if not(quiet):
                         data_list[i].plot()
                         save = input("Save it? (y/n) ")
