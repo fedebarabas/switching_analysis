@@ -33,8 +33,7 @@ r_dtype = np.dtype([('date', int),
                     ('path', 'S100')])
 
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power2.hdf5'
-
+results_file = 'results_vs_power.hdf5'
 
 # CCD relative sensibility
 ccd_dtype = np.dtype([('DU860', float),
@@ -55,6 +54,40 @@ def hyperbolic(x, A, B):
 
 def linear(x, A):
     return A * x
+
+def new_empty():
+    """Method for creating a new empty results hdf5 file"""
+
+    os.chdir(initialdir)
+
+    store_file = hdf.File("results_vs_power_empty_new.hdf5", "w")
+
+    # laser_calibration
+    r_dtype = np.dtype([('date', int),
+                        ('642_0', float),
+                        ('642_linear', float),
+                        ('642_quad', float),
+                        ('405_0', float),
+                        ('405_linear', float),
+                        ('405_quad', float),
+                        ('comment', 'S100')])
+    calibration = np.zeros(4, dtype=r_dtype)
+    store_file.create_dataset('laser_calibration',
+                              data=calibration,
+                              maxshape=(None,))
+
+    # laser_calibration_units
+    l_dtype = np.dtype([('laser', int),
+                        ('units', 'S100')])
+    cal_units = np.zeros(2, dtype=l_dtype)
+    cal_units['laser'][0] = 405
+    cal_units['laser'][1] = 642
+    cal_units['units'][0] = r'labview scale to W/cm^2'
+    cal_units['units'][1] = r'mW to kW/cm^2'
+    store_file.create_dataset('laser_calibration_units',
+                              data=cal_units,
+                              maxshape=(None,))
+    store_file.close()
 
 def load_dir(initialdir=initialdir):
 
@@ -244,9 +277,10 @@ class Data:
 
         # Filling the new rows
         index = np.argmax(store_file['laser_calibration']['date'] > self.date)
-        intercept = store_file['laser_calibration']['642_y_intercept'][index - 1]
-        slope = store_file['laser_calibration']['642_slope'][index - 1]
-        self.intensity = intercept + self.power * slope
+        zero = store_file['laser_calibration']['642_0'][index - 1]
+        linear = store_file['laser_calibration']['642_linear'][index - 1]
+        quad = store_file['laser_calibration']['642_quad'][index - 1]
+        self.intensity = zero + self.power * linear + self.power**2 * quad
 
         if self.parameter in ['photons', 'totalphotons']:
             ccd_factor = ccd_sens[self.camera][self.hs_speed]
@@ -556,7 +590,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.set_ylabel("Off rate [s^-1]")
             ax.set_xlabel("Intensity [kW/cm^2]")
             ax.set_xlim(0, int(ceil(x_data.max()) / 10 + 1) * 10)
-            ax.grid(True)
+
 
             # Curve fitting
             if fit=='hyperbolic':
@@ -620,7 +654,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             ax.set_ylabel(parameter)
 
-
+        ax.grid(True)
         plt.show()
 
     else:
@@ -631,6 +665,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
 if __name__ == "__main__":
 
+#    %load_ext autoreload
+#    %autoreload 2
+
     parameter = ['ontimes', 'photons', 'totalphotons', 'transitions']
     first_bin = [3, 3, 3, 3]
 
@@ -639,9 +676,6 @@ if __name__ == "__main__":
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
     sw.analyze_folder(parameter[0], first_bin, quiet=True)
-
-#    import imp
-#    imp.reload(sw)
 
 #    results = sw.getresults(load_file='results_vs_power.hdf5')
 
