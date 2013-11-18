@@ -18,6 +18,9 @@ from scipy.optimize import curve_fit
 from tkinter import Tk, filedialog
 import h5py as hdf
 
+initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
+results_file = 'results_vs_power.hdf5'
+
 # Data type for the results
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
@@ -31,9 +34,6 @@ r_dtype = np.dtype([('date', int),
                     ('inv_tau', float),
                     ('hist_mean', float),
                     ('path', 'S100')])
-
-initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power.hdf5'
 
 # CCD relative sensibility
 ccd_dtype = np.dtype([('DU860', float),
