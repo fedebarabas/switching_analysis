@@ -591,13 +591,13 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.set_xlabel("Intensity [kW/cm^2]")
             ax.set_xlim(0, int(ceil(x_data.max()) / 10 + 1) * 10)
 
+            if fit_end != None:
+                end = np.argmax(x_data > fit_end)
+                x_data = x_data[:end]
+                y_data = y_data[:end]
 
             # Curve fitting
             if fit=='hyperbolic':
-                if fit_end != None:
-                    end = np.argmax(x_data > fit_end)
-                    x_data = x_data[:end]
-                    y_data = y_data[:end]
 
                 init_slope = 10
                 guess = [init_slope, y_data.max() / init_slope ]
@@ -619,10 +619,6 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 ax.legend(loc=4)
 
             elif fit=='linear':
-                if fit_end != None:
-                    end = np.argmax(x_data > fit_end)
-                    x_data = x_data[:end]
-                    y_data = y_data[:end]
 
                 guess = [y_data.max() / x_data.max()]
                 fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
