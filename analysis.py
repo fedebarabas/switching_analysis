@@ -71,7 +71,7 @@ def new_empty():
                         ('405_linear', float),
                         ('405_quad', float),
                         ('comment', 'S100')])
-    calibration = np.zeros(4, dtype=r_dtype)
+    calibration = np.zeros(5, dtype=r_dtype)
     store_file.create_dataset('laser_calibration',
                               data=calibration,
                               maxshape=(None,))
@@ -594,6 +594,10 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             # Curve fitting
             if fit=='hyperbolic':
+                if fit_end != None:
+                    end = np.argmax(x_data > fit_end)
+                    x_data = x_data[:end]
+                    y_data = y_data[:end]
 
                 init_slope = 10
                 guess = [init_slope, y_data.max() / init_slope ]
@@ -661,7 +665,6 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         print("File " + store_name + " not found in " + os.getcwd())
 
-    ### TODO: put units to work
 
 if __name__ == "__main__":
 
