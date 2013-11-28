@@ -543,7 +543,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000]):
+                 dates=[0, 990000], join=False):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -579,7 +579,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         x_data.sort()
 
         if parameter=="ontimes":
-            plt.scatter(x_data, y_data)
+            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             if interval == None:
                 ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
@@ -643,16 +643,35 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.set_ylabel("On rate [s^-1]")
 
         else:
+
+            x_data = results['intensity_642']
             if mean:
-                plt.scatter(results['intensity_642'], results['hist_mean'])
+                y_data = results['hist_mean']
 
             else:
-                plt.scatter(results['intensity_642'], 1 / results['inv_tau'])
+                y_data = 1 / results['inv_tau']
+
+            y_data = y_data[np.argsort(x_data)]
+            x_data.sort()
+
+#            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel(parameter)
+
+        if join:
+            x_u, index = np.unique(x_data, return_inverse=True)
+            y_u = np.zeros(x_u.size)
+            ey_u = np.zeros(x_u.size)
+            for i in np.arange(np.unique(x_data).size):
+                data = y_data[np.where(index==i)]
+                y_u[i] = data.mean()
+                ey_u[i] = data.std()
+
+            plt.errorbar(x_u, y_u, yerr=ey_u, fmt='o')
+
 
         ax.grid(True)
         plt.show()
@@ -674,7 +693,7 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-    sw.analyze_folder(parameter[0], first_bin, quiet=True)
+    sw.analyze_folder(parameter[0])
 
 #    results = sw.getresults(load_file='results_vs_power.hdf5')
 
