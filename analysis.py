@@ -15,10 +15,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
-from tkinter import Tk, filedialog
+# Python2-3 compatiblilty handling
+try:
+    from tkinter import Tk, filedialog
+
+except ImportError:
+    import tkFileDialog as filedialog
+    from Tkinter import Tk
+    
 import h5py as hdf
 
-initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
+initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 results_file = 'results_vs_power.hdf5'
 
 # Data type for the results
@@ -579,7 +586,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         x_data.sort()
 
         if parameter=="ontimes":
-            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+#            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             if interval == None:
                 ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
@@ -654,7 +661,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             y_data = y_data[np.argsort(x_data)]
             x_data.sort()
 
-#            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
@@ -685,6 +692,11 @@ if __name__ == "__main__":
 
 #    %load_ext autoreload
 #    %autoreload 2
+
+    import sys, os
+
+    repos = 'P:\\Private\\repos'
+    sys.path.append(repos)    
 
     parameter = ['ontimes', 'photons', 'totalphotons', 'transitions']
     first_bin = [3, 3, 3, 3]
