@@ -25,7 +25,8 @@ except ImportError:
     
 import h5py as hdf
 
-initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
+#initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
+initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
 results_file = 'results_vs_power.hdf5'
 
 # Data type for the results
@@ -96,6 +97,12 @@ def new_empty():
                               maxshape=(None,))
     store_file.close()
 
+def new_calibration(load_dir=initialdir, load_file=results_file):
+    results = getresults(load_file = load_dir + load_file)
+    size = results['laser_calibration'].size
+    results['laser_calibration'].resize((size + 1,))
+    results.close()
+
 def load_dir(initialdir=initialdir):
 
     from glob import glob
@@ -145,7 +152,9 @@ def getresults(load_dir=initialdir, load_file=results_file):
     """Load results held in results_vs_power.hdf5 file"""
 
     #os.chdir(load_dir)
-
+    print(load_dir)
+    
+    
     if os.path.isfile(load_dir + load_file):
 
         # Load data from HDF5 file
