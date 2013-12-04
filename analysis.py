@@ -22,7 +22,7 @@ try:
 except ImportError:
     import tkFileDialog as filedialog
     from Tkinter import Tk
-    
+
 import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
@@ -153,8 +153,8 @@ def getresults(load_dir=initialdir, load_file=results_file):
 
     #os.chdir(load_dir)
     print(load_dir)
-    
-    
+
+
     if os.path.isfile(load_dir + load_file):
 
         # Load data from HDF5 file
@@ -168,7 +168,6 @@ def getresults(load_dir=initialdir, load_file=results_file):
 class Data:
     """Methods for analyzing the switching dynamics data"""
 
-    #def load(self, dir_name, file_name, bins=50):
     def load(self, dir_name=None, file_name=None, initialdir=initialdir,
              bins=50):
         """Data loading
@@ -475,7 +474,7 @@ def save_folder(parameter, new_results, store_name=results_file):
 
     os.chdir(cwd)
 
-def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
+def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
 
     # Saving thresholds
     if save_all:
@@ -537,6 +536,7 @@ def analyze_folder(parameters, from_bin=0, quiet=False, save_all=False):
                         mean_pos = (1 /
                             (data_list[i].inv_tau * data_list[i].bin_width))
                         if data_list[i].parameter in ['offtimes', 'ontimes']:
+                            print(data_list[i].frame_rate)
                             mean_pos = mean_pos * data_list[i].frame_rate
                         if (min_total_counts > min_counts and
                             mean_pos > min_mean_pos):
@@ -573,29 +573,26 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         infile.close()
 
         # Define subset of data
-#        if dates
-        results.sort(order=['date', 'intensity_642'])
-        if not(type(dates) is list):
-            dates = [dates, dates]
-        init = np.argmax(results['date'] == dates[0])
-        if dates[1] < results['date'][-1]:
-            end = np.argmax(results['date'] > dates[1])
-        else:
-            end = results['date'][-1]
+        results = results[((results['date'] >= dates[0])*
+                           (results['date'] <= dates[1]))]
 
         # Plot
         fig, ax = plt.subplots()
-        x_data = results['intensity_642'][init:end]
+        x_data = results['intensity_642']
         if mean:
-            y_data = 1 / results['hist_mean'][init:end]
+            y_data = 1 / results['hist_mean']
         else:
-            y_data = results['inv_tau'][init:end]
+            y_data = results['inv_tau']
 
-        y_data = y_data[np.argsort(x_data)]
-        x_data.sort()
+        dates = results['date']
+        dates = np.unique(dates, return_index=True, return_inverse=True)[2]
+
+        ax.set_xlabel("Intensity [kW/cm^2]")
+        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
 
         if parameter=="ontimes":
-#            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+
+            plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
 
             if interval == None:
                 ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
@@ -604,78 +601,70 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel("Off rate [s^-1]")
-            ax.set_xlabel("Intensity [kW/cm^2]")
-            ax.set_xlim(0, int(ceil(x_data.max()) / 10 + 1) * 10)
-
-            if fit_end != None:
-                end = np.argmax(x_data > fit_end)
-                x_data = x_data[:end]
-                y_data = y_data[:end]
-
-            # Curve fitting
-            if fit=='hyperbolic':
-
-                init_slope = 10
-                guess = [init_slope, y_data.max() / init_slope ]
-
-                fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
-                                             p0=guess)
-
-                # Get the sigma of parameters from covariance matrix
-                fit_sigma = np.sqrt(fit_var.diagonal())
-
-                # Fitting curve plotting
-                fit_func = hyperbolic(x_data, *fit_par)
-                ax.plot(x_data, fit_func, color='r', lw=3,
-                label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
-                .format(np.round(fit_par[0], 1),
-                        np.round(fit_sigma[0], 1),
-                        np.round(fit_par[1], 1),
-                        np.round(fit_sigma[1], 1)))
-                ax.legend(loc=4)
-
-            elif fit=='linear':
-
-                guess = [y_data.max() / x_data.max()]
-                fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
-                fit_sigma = np.sqrt(fit_var[0])
-
-                # Fitting curve plotting
-                fit_func = linear(x_data, *fit_par)
-                ax.plot(x_data, fit_func, color='r', lw=3,
-                label="y = A * x\nA = {} pm {}"
-                .format(np.round(fit_par[0], 1),
-                        np.round(fit_sigma[0], 1)))
-                ax.legend(loc=4)
-
 
         elif parameter=="offtimes":
-            if mean:
-                plt.scatter(results['intensity_642'], 1 / results['hist_mean'])
 
-            else:
-                plt.scatter(results['intensity_642'], results['inv_tau'])
-
+            plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
             ax.set_ylabel("On rate [s^-1]")
 
         else:
 
-            x_data = results['intensity_642']
             if mean:
                 y_data = results['hist_mean']
 
             else:
                 y_data = 1 / results['inv_tau']
 
-            y_data = y_data[np.argsort(x_data)]
-            x_data.sort()
-
-            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+            plt.scatter(x_data, y_data, c=dates)
+                            #, facecolors='none', edgecolors='b'
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel(parameter)
+
+        # Curve fitting
+        if fit_end != None:
+            end = np.argmax(x_data > fit_end)
+            x_data = x_data[:end]
+            y_data = y_data[:end]
+
+        if fit=='hyperbolic':
+
+            init_slope = 10
+            guess = [init_slope, y_data.max() / init_slope ]
+
+            fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
+                                         p0=guess)
+
+            # Get the sigma of parameters from covariance matrix
+            fit_sigma = np.sqrt(fit_var.diagonal())
+
+            # Fitting curve plotting
+            x_plot = np.array(x_data)
+            x_plot.sort()
+            fit_func = hyperbolic(x_plot, *fit_par)
+            ax.plot(x_plot, fit_func, color='r', lw=3,
+            label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
+            .format(np.round(fit_par[0], 1),
+                    np.round(fit_sigma[0], 1),
+                    np.round(fit_par[1], 1),
+                    np.round(fit_sigma[1], 1)))
+            ax.legend(loc=4)
+
+        elif fit=='linear':
+
+            guess = [y_data.max() / x_data.max()]
+            fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
+            fit_sigma = np.sqrt(fit_var[0])
+
+            # Fitting curve plotting
+            fit_func = linear(x_data, *fit_par)
+            ax.plot(x_data, fit_func, color='r', lw=3,
+            label="y = A * x\nA = {} pm {}"
+            .format(np.round(fit_par[0], 1),
+                    np.round(fit_sigma[0], 1)))
+            ax.legend(loc=4)
 
         if join:
             x_u, index = np.unique(x_data, return_inverse=True)
@@ -705,7 +694,7 @@ if __name__ == "__main__":
     import sys, os
 
     repos = 'P:\\Private\\repos'
-    sys.path.append(repos)    
+    sys.path.append(repos)
 
     parameter = ['ontimes', 'photons', 'totalphotons', 'transitions']
     first_bin = [3, 3, 3, 3]
@@ -714,7 +703,7 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-    sw.analyze_folder(parameter[0])
+    sw.analyze_folder(parameter[0], first_bin)
 
 #    results = sw.getresults(load_file='results_vs_power.hdf5')
 
