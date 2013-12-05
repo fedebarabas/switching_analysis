@@ -39,6 +39,7 @@ r_dtype = np.dtype([('date', int),
                     ('power_405', int),
                     ('intensity_405', float),
                     ('n_counts', (int, (10))),
+#                    ('n_counts', (int, (40))),
                     ('inv_tau', float),
                     ('hist_mean', float),
                     ('path', 'S100')])
@@ -304,7 +305,8 @@ class Data:
 
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
-        self.n_counts = n_counts_tmp
+        # parche horrendo, no quiero volver a empezar
+        self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
         self.results = np.array([(self.date,
                                   self.frame_rate,
                                   self.n_frames,
@@ -559,7 +561,7 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000], join=False):
+                 dates=[0, 990000], join=False, scatter=True):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -603,7 +605,6 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.set_ylabel("Off rate [s^-1]")
 
         elif parameter=="offtimes":
-
             plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
             ax.set_ylabel("On rate [s^-1]")
 
@@ -615,8 +616,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             else:
                 y_data = 1 / results['inv_tau']
 
-            plt.scatter(x_data, y_data, c=dates)
-                            #, facecolors='none', edgecolors='b'
+            if scatter:
+                plt.scatter(x_data, y_data, c=dates)
+                                #, facecolors='none', edgecolors='b'
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
@@ -667,6 +669,19 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             ax.legend(loc=4)
 
         if join:
+            y_s = y_data[np.argsort(x_data)]
+            x_s = np.sort(x_data)
+#            last = int(ceil(x_data.max() / 10)) * 10
+            last = x_data.max()
+            x_r = np.split(x_data,
+                           [np.where(x_data > i)[0][0] for i in np.arange(0,
+                                                                          last,
+                                                                          5)])
+            x_u = np.mean(x_r, 1)
+            e_u = np.std(x_r, 1)
+
+
+
             x_u, index = np.unique(x_data, return_inverse=True)
             y_u = np.zeros(x_u.size)
             ey_u = np.zeros(x_u.size)
