@@ -11,7 +11,6 @@ from __future__ import division, with_statement, print_function
 import os
 
 import time
-from itertools import zip_longest
 
 from math import ceil
 import numpy as np
@@ -30,12 +29,10 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_control2.hdf5'
+results_file = 'results_vs_power.hdf5'
 
 # Data type for the results
-#r_dtype = np.dtype([('date', int),
-r_dtype = np.dtype([('date', float),
-                    ('edate', float),
+r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('n_frames', float),
                     ('frame_size', 'S10'),
@@ -224,12 +221,6 @@ class Data:
                                                     + 1:len(self.file_name[0])]
         self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
 
-        # Measurement date&time
-        dax_files = [name[:][:dot_p] + '.dax' for name in file_name]
-        times = np.array([os.path.getctime(dax) for dax in dax_files])
-        self.time = times.mean()
-        self.etime = times.std()
-
         # Information extraction from .inf file
         inf_name = self.file_name[0][:dot_p] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
@@ -321,9 +312,7 @@ class Data:
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
         # parche horrendo, no quiero volver a empezar
         self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
-#        self.results = np.array([(self.date,
-        self.results = np.array([(self.time,
-                                  self.etime,
+        self.results = np.array([(self.date,
                                   self.frame_rate,
                                   self.n_frames,
                                   self.frame_size,
@@ -491,11 +480,6 @@ def save_folder(parameter, new_results, store_name=results_file):
     print("Done!")
 
     os.chdir(cwd)
-
-def grouper(n, iterable, fillvalue=None):
-    "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
-    args = [iter(iterable)] * n
-    return list(zip_longest(fillvalue=fillvalue, *args))
 
 def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                    control=False, simulation=False):
