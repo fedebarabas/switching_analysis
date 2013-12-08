@@ -10,6 +10,9 @@ from __future__ import division, with_statement, print_function
 
 import os
 
+import time
+from itertools import zip_longest
+
 from math import ceil
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,10 +30,12 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power.hdf5'
+results_file = 'results_control2.hdf5'
 
 # Data type for the results
-r_dtype = np.dtype([('date', int),
+#r_dtype = np.dtype([('date', int),
+r_dtype = np.dtype([('date', float),
+                    ('edate', float),
                     ('frame_rate', float),
                     ('n_frames', float),
                     ('frame_size', 'S10'),
@@ -80,7 +85,7 @@ def new_empty():
                         ('405_linear', float),
                         ('405_quad', float),
                         ('comment', 'S100')])
-    calibration = np.zeros(5, dtype=r_dtype)
+    calibration = np.zeros(6, dtype=r_dtype)
     store_file.create_dataset('laser_calibration',
                               data=calibration,
                               maxshape=(None,))
@@ -153,7 +158,7 @@ def getresults(load_dir=initialdir, load_file=results_file):
     """Load results held in results_vs_power.hdf5 file"""
 
     #os.chdir(load_dir)
-    print(load_dir)
+#    print(load_dir)
 
 
     if os.path.isfile(load_dir + load_file):
@@ -208,16 +213,25 @@ class Data:
             self.file_name = [self.file_name]
 
         # Paths and parameter extraction
+
+        dot_p = self.file_name[0].find('.')
+
         self.path = self.file_name
         self.nfiles = len(self.file_name)
         self.minipath = (self.subdir + r"/" +
-                         self.file_name[0][0:self.file_name[0].find('.') - 4])
+                         self.file_name[0][0:dot_p - 4])
         self.parameter = self.file_name[0][self.file_name[0].rindex('_')
                                                     + 1:len(self.file_name[0])]
         self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
 
+        # Measurement date&time
+        dax_files = [name[:][:dot_p] + '.dax' for name in file_name]
+        times = np.array([os.path.getctime(dax) for dax in dax_files])
+        self.time = times.mean()
+        self.etime = times.std()
+
         # Information extraction from .inf file
-        inf_name = self.file_name[0][:self.file_name[0].find('.')] + '.inf'
+        inf_name = self.file_name[0][:dot_p] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
         self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
         self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
@@ -307,7 +321,9 @@ class Data:
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
         # parche horrendo, no quiero volver a empezar
         self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
-        self.results = np.array([(self.date,
+#        self.results = np.array([(self.date,
+        self.results = np.array([(self.time,
+                                  self.etime,
                                   self.frame_rate,
                                   self.n_frames,
                                   self.frame_size,
@@ -476,7 +492,13 @@ def save_folder(parameter, new_results, store_name=results_file):
 
     os.chdir(cwd)
 
-def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
+def grouper(n, iterable, fillvalue=None):
+    "grouper(3, 'ABCDEFG', 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    return list(zip_longest(fillvalue=fillvalue, *args))
+
+def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
+                   control=False, simulation=False):
 
     # Saving thresholds
     if save_all:
@@ -510,6 +532,12 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
                     file_list.append([item_i for item_i in item if
                                             item_i.endswith("_" + parameter)])
 
+
+                if control:
+                    file_list[0].sort()
+                    file_list = [file_list[0][i:i + 3]
+                                        for i in range(0, len(file_list[0]), 3)]
+
                 nfiles = len(file_list)
 
                 # Creation of an instance of Data() for each file
@@ -525,24 +553,24 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
                     data_list[i].load(dir_name, file_list[i])
                     data_list[i].fit(from_bin[parameters.index(parameter)])
 
-                    if not(quiet):
-                        data_list[i].plot()
-                        save = input("Save it? (y/n) ")
-                        if save=='y':
-                            folder_results[i] = data_list[i].results
+                    if not(simulation):
+                        if not(quiet):
+                            data_list[i].plot()
+                            save = input("Save it? (y/n) ")
+                            if save=='y':
+                                folder_results[i] = data_list[i].results
 
-                    # Conditions for automatic saving: min total_counts and
-                    # min bin position of fitting mean
-                    else:
-                        min_total_counts = data_list[i].total_counts
-                        mean_pos = (1 /
-                            (data_list[i].inv_tau * data_list[i].bin_width))
-                        if data_list[i].parameter in ['offtimes', 'ontimes']:
-                            print(data_list[i].frame_rate)
-                            mean_pos = mean_pos * data_list[i].frame_rate
-                        if (min_total_counts > min_counts and
-                            mean_pos > min_mean_pos):
-                            folder_results[i] = data_list[i].results
+                        # Conditions for automatic saving: min total_counts and
+                        # min bin position of fitting mean
+                        else:
+                            min_total_counts = data_list[i].total_counts
+                            mean_pos = (1 /
+                                (data_list[i].inv_tau * data_list[i].bin_width))
+                            if data_list[i].parameter in ['offtimes', 'ontimes']:
+                                mean_pos = mean_pos * data_list[i].frame_rate
+                            if (min_total_counts > min_counts and
+                                mean_pos > min_mean_pos):
+                                folder_results[i] = data_list[i].results
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
@@ -561,7 +589,7 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False):
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000], join=False, scatter=True):
+                 dates=[0, 990000], join=False):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -594,7 +622,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         if parameter=="ontimes":
 
-            plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
+            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+                                        # c=dates,
 
             if interval == None:
                 ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
@@ -616,9 +645,9 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             else:
                 y_data = 1 / results['inv_tau']
 
-            if scatter:
-                plt.scatter(x_data, y_data, c=dates)
-                                #, facecolors='none', edgecolors='b'
+            if not(join):
+                plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+                                # c=dates
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
@@ -671,26 +700,20 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         if join:
             y_s = y_data[np.argsort(x_data)]
             x_s = np.sort(x_data)
-#            last = int(ceil(x_data.max() / 10)) * 10
-            last = x_data.max()
-            x_r = np.split(x_data,
-                           [np.where(x_data > i)[0][0] for i in np.arange(0,
-                                                                          last,
-                                                                          5)])
-            x_u = np.mean(x_r, 1)
-            e_u = np.std(x_r, 1)
+            last = x_s[-1]
+            indices = [np.where(x_s > i)[0][0] for i in np.arange(0, last, 5)]
+            x_r = np.split(x_s, indices)
 
+#            x_u, index = np.unique(x_data, return_inverse=True)
+            x_u = np.array([x_ri.mean() for x_ri in x_r if x_ri.size > 0])
+            ex_u = np.array([x_ri.std() for x_ri in x_r if x_ri.size > 0])
 
+            y_u = np.array([y_s[indices[i]:indices[i + 1]].mean()
+                          for i in np.arange(x_u.size)])
+            ey_u = np.array([y_s[indices[i]:indices[i + 1]].std()
+                          for i in np.arange(x_u.size)])
 
-            x_u, index = np.unique(x_data, return_inverse=True)
-            y_u = np.zeros(x_u.size)
-            ey_u = np.zeros(x_u.size)
-            for i in np.arange(np.unique(x_data).size):
-                data = y_data[np.where(index==i)]
-                y_u[i] = data.mean()
-                ey_u[i] = data.std()
-
-            plt.errorbar(x_u, y_u, yerr=ey_u, fmt='o')
+            plt.errorbar(x_u, y_u, yerr=ey_u, xerr=ex_u, fmt='o')
 
 
         ax.grid(True)
