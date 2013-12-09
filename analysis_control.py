@@ -316,8 +316,8 @@ class Data:
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
         # parche horrendo, no quiero volver a empezar
         self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
-        self.results = np.array([(self.date,
-                                  self.edate,
+        self.results = np.array([(self.time,
+                                  self.etime,
                                   self.frame_rate,
                                   self.n_frames,
                                   self.frame_size,
@@ -328,7 +328,7 @@ class Data:
                                   self.n_counts,
                                   self.inv_tau,
                                   self.mean,
-                                  self.minipath)],
+                                  self.file_name[0])],
                                   dtype=r_dtype)
 
     def plot(self):
@@ -487,7 +487,7 @@ def save_folder(parameter, new_results, store_name=results_file):
     os.chdir(cwd)
 
 def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
-                   control=False, simulation=False):
+                   control=True, simulation=False):
 
     # Saving thresholds
     if save_all:
@@ -543,7 +543,7 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                     data_list[i].fit(from_bin[parameters.index(parameter)])
 
                     if not(simulation):
-                        if not(quiet):
+                        if not(quiet) or not(save_all):
                             data_list[i].plot()
                             save = input("Save it? (y/n) ")
                             if save=='y':
@@ -578,7 +578,7 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000], join=False, control=False):
+                 dates=[0, 990000], join=False, control=True):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -592,51 +592,54 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         infile.close()
 
         # Define subset of data
-        results = results[((results['date'] >= dates[0])*
-                           (results['date'] <= dates[1]))]
+#        results = results[((results['date'] >= dates[0])*
+#                           (results['date'] <= dates[1]))]
 
         # Plot
         fig, ax = plt.subplots()
-        
+
         if not(control):
-        
+
             x_data = results['intensity_642']
-   
+
             dates = results['date']
             dates = np.unique(dates, return_index=True, return_inverse=True)[2]
-    
+
             ax.set_xlabel("Intensity [kW/cm^2]")
             ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
 
         else:
-            
+
             # Here we're assuming the data is already sorted by timestamp
             # Converting to minutes
-            print(results)
-            x_data = (results['date'] - results['date'][0]) / 60            
+            x_data = (results['date'] - results['date'][0]) / 60
             ex_data = results['edate'] / 60
-            
+
 
         if mean:
             y_data = 1 / results['hist_mean']
         else:
-            y_data = results['inv_tau']        
-        
+            y_data = results['inv_tau']
+
         if parameter=="ontimes":
 
-            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+            plt.errorbar(x_data, y_data, xerr=ex_data, fmt='o')
+#                         facecolors='none',
+#                         edgecolors='b')
                                         # c=dates,
 
-            if interval == None:
-                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
-
-            else:
-                ax.set_ylim(interval[0], interval[1])
+#            if interval == None:
+#                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
+#
+#            else:
+#                ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel("Off rate [s^-1]")
 
         elif parameter=="offtimes":
-            plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
+            plt.errorbar(x_data, y_data, xerr=ex_data, fmt='o')
+#                         facecolors='none',
+#                         edgecolors='b')
             ax.set_ylabel("On rate [s^-1]")
 
         else:
@@ -648,8 +651,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 y_data = 1 / results['inv_tau']
 
             if not(join):
-                plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
-                                # c=dates
+                plt.errorbar(x_data, y_data, xerr=ex_data, fmt='o')
+                                #  , edgecolors='b', facecolors='none', c=dates
 
             if interval != None:
                 ax.set_ylim(interval[0], interval[1])
@@ -716,7 +719,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                           for i in np.arange(x_u.size)])
 
             plt.errorbar(x_u, y_u, yerr=ey_u, xerr=ex_u, fmt='o')
-            
+
         ax.grid(True)
         plt.show()
 
