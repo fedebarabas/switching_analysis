@@ -10,8 +10,6 @@ from __future__ import division, with_statement, print_function, absolute_import
 
 import os
 
-import time
-
 from math import ceil
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,7 +27,7 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_control2.hdf5'
+results_file = 'results_control.hdf5'
 
 # Data type for the results
 #r_dtype = np.dtype([('date', int),

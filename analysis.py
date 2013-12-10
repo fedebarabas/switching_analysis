@@ -10,8 +10,6 @@ from __future__ import division, with_statement, print_function
 
 import os
 
-import time
-
 from math import ceil
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,7 +27,7 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power.hdf5'
+results_file = 'results_vs_power2.hdf5'
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
@@ -38,10 +36,9 @@ r_dtype = np.dtype([('date', int),
                     ('frame_size', 'S10'),
                     ('power_642', int),
                     ('intensity_642', float),
-                    ('power_405', int),
+                    ('power_405', float),
                     ('intensity_405', float),
                     ('n_counts', (int, (10))),
-#                    ('n_counts', (int, (40))),
                     ('inv_tau', float),
                     ('hist_mean', float),
                     ('path', 'S100')])
@@ -57,14 +54,18 @@ ccd_sens['DU897'][10] = 1.17
 ccd_sens['DU897'][5] = 1.04
 ccd_sens['DU897'][3] = 1
 
+
 def expo(x, A, inv_tau):
     return A * np.exp(- inv_tau * x)
+
 
 def hyperbolic(x, A, B):
     return A * x / (1 + x/B)
 
+
 def linear(x, A):
     return A * x
+
 
 def new_empty():
     """Method for creating a new empty results hdf5 file"""
@@ -100,11 +101,13 @@ def new_empty():
                               maxshape=(None,))
     store_file.close()
 
+
 def new_calibration(load_dir=initialdir, load_file=results_file):
-    results = getresults(load_file = load_dir + load_file)
+    results = getresults(load_file=load_dir + load_file)
     size = results['laser_calibration'].size
     results['laser_calibration'].resize((size + 1,))
     results.close()
+
 
 def load_dir(initialdir=initialdir):
 
@@ -119,13 +122,11 @@ def load_dir(initialdir=initialdir):
                                            title='Please select a directory')
         root.destroy()
 
-        os.chdir(dir_name)
-
     except OSError:
         print("No folder selected!")
 
     # Get subdirectories of the chosen folder
-    subdirs = [x[0] for x in os.walk(os.getcwd())]
+    subdirs = [x[0] for x in os.walk(dir_name)]
 
     dir_names = []
     return_lists = []
@@ -147,16 +148,11 @@ def load_dir(initialdir=initialdir):
 
         return_lists.append([list(t) for t in set(map(tuple, return_list))])
 
-    os.chdir(subdirs[0])
-
     return dir_names, return_lists
+
 
 def getresults(load_dir=initialdir, load_file=results_file):
     """Load results held in results_vs_power.hdf5 file"""
-
-    #os.chdir(load_dir)
-#    print(load_dir)
-
 
     if os.path.isfile(load_dir + load_file):
 
@@ -167,6 +163,7 @@ def getresults(load_dir=initialdir, load_file=results_file):
         print("File not found")
 
         return None
+
 
 class Data:
     """Methods for analyzing the switching dynamics data"""
@@ -181,12 +178,14 @@ class Data:
 
         self.bins = bins
 
-        if dir_name==None:
+        if dir_name is None:
             # File dialog
             root = Tk()
             file_name = filedialog.askopenfilename(parent=root,
-                       initialdir=initialdir,
-                       title='Please select all files that have to be joined')
+                                                   initialdir=initialdir,
+                                                   title='Please select all '
+                                                   'files that have to be '
+                                                   'joined')
             root.destroy()
 
             # File attributes definitions
@@ -218,8 +217,14 @@ class Data:
         self.minipath = (self.subdir + r"/" +
                          self.file_name[0][0:dot_p - 4])
         self.parameter = self.file_name[0][self.file_name[0].rindex('_')
-                                                    + 1:len(self.file_name[0])]
-        self.power = int(self.file_name[0][1:self.file_name[0].index('_') - 2])
+                                           + 1:len(self.file_name[0])]
+        self.power642 = int(self.file_name[0][1:self.file_name[0].index('_')
+                            - 2])
+
+        uv_pos = file_name[0].find('uv')
+        power405 = self.file_name[0][uv_pos + 2:file_name[0].find('_', uv_pos)]
+
+        self.power405 = float(power405.replace('p', '.'))
 
         # Information extraction from .inf file
         inf_name = self.file_name[0][:dot_p] + '.inf'
@@ -275,10 +280,10 @@ class Data:
         # Curve fitting
         try:
             self.fit_par, self.fit_var = curve_fit(expo,
-                                               self.bin_centres[self.fit_start:],
-                                               self.hist[self.fit_start:],
-                                               p0=self.fit_guess,
-                                               sigma=sigma)
+                                                   self.bin_centres[self.fit_start:],
+                                                   self.hist[self.fit_start:],
+                                                   p0=self.fit_guess,
+                                                   sigma=sigma)
             self.fitted = True
 
             # Method definitions to make it more verbose
@@ -296,12 +301,20 @@ class Data:
 
         store_file = getresults()
 
-        # Filling the new rows
+        # Laser's intensity calibration
         index = np.argmax(store_file['laser_calibration']['date'] > self.date)
-        zero = store_file['laser_calibration']['642_0'][index - 1]
-        linear = store_file['laser_calibration']['642_linear'][index - 1]
-        quad = store_file['laser_calibration']['642_quad'][index - 1]
-        self.intensity = zero + self.power * linear + self.power**2 * quad
+        p0_642 = store_file['laser_calibration']['642_0'][index - 1]
+        p1_642 = store_file['laser_calibration']['642_linear'][index - 1]
+        p2_642 = store_file['laser_calibration']['642_quad'][index - 1]
+        p0_405 = store_file['laser_calibration']['405_0'][index - 1]
+        p1_405 = store_file['laser_calibration']['405_linear'][index - 1]
+        p2_405 = store_file['laser_calibration']['405_quad'][index - 1]
+        self.intensity642 = (p0_642 +
+                             p1_642 * self.power642 +
+                             p2_642 * self.power642**2)
+        self.intensity405 = (p0_405 +
+                             p1_405 * self.power405 +
+                             p2_405 * self.power405**2)
 
         if self.parameter in ['photons', 'totalphotons']:
             ccd_factor = ccd_sens[self.camera][self.hs_speed]
@@ -316,15 +329,15 @@ class Data:
                                   self.frame_rate,
                                   self.n_frames,
                                   self.frame_size,
-                                  self.power,
-                                  self.intensity,
-                                  0,
-                                  0,
+                                  self.power642,
+                                  self.intensity642,
+                                  self.power405,
+                                  self.intensity405,
                                   self.n_counts,
                                   self.inv_tau,
                                   self.mean,
                                   self.minipath)],
-                                  dtype=r_dtype)
+                                dtype=r_dtype)
 
     def plot(self):
         """Data plotting.
@@ -347,12 +360,12 @@ class Data:
         if self.fitted:
             hist_fit = expo(self.bin_centres, *self.fit_par)
             self.ax.plot(self.bin_centres[self.fit_start:],
-                     hist_fit[self.fit_start:],
-                     color='r', lw=3,
-                     label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = {}\n"
-                             "tau = {}\npower = {}"
-                     .format(int(self.amplitude), self.inv_tau,
-                             1 / self.inv_tau, self.power))
+                         hist_fit[self.fit_start:],
+                         color='r', lw=3,
+                         label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = "
+                         "{}\ntau = {}".format(int(self.amplitude),
+                                               self.inv_tau,
+                                               1 / self.inv_tau))
             self.ax.legend()
 
             # Print filter indicators
@@ -373,7 +386,6 @@ class Data:
 
             cwd = os.getcwd()
             os.chdir(os.path.split(cwd)[0])
-
 
             # If file doesn't exist, it's created and the dataset is added
 #            if not(os.path.isfile(store_name)):
@@ -398,7 +410,7 @@ class Data:
                 prev_size = store_file[self.parameter].size
                 prev_results = store_file[self.parameter].value
 
-                exists = np.any(prev_results==self.results)
+                exists = np.any(prev_results == self.results)
                 if exists:
                     print(self.results['path'], "was previously saved in",
                           store_name, r'/', self.parameter,
@@ -443,7 +455,9 @@ def save_folder(parameter, new_results, store_name=results_file):
     # If file doesn't exist, it's created and the dataset is added
     if not(os.path.isfile(store_name)):
         store_file = hdf.File(store_name, "w")
-        store_file.create_dataset(parameter, data=new_results, maxshape=(None,))
+        store_file.create_dataset(parameter,
+                                  data=new_results,
+                                  maxshape=(None,))
 
     else:
         store_file = hdf.File(store_name, "r+")
@@ -460,7 +474,8 @@ def save_folder(parameter, new_results, store_name=results_file):
             prev_size = store_file[parameter].size
             prev_results = store_file[parameter].value
 
-            exists = np.array([np.any(prev_results==new_result) for new_result in new_results],
+            exists = np.array([np.any(prev_results == new_result)
+                              for new_result in new_results],
                               dtype=bool)
 
             if np.any(exists):
@@ -481,18 +496,19 @@ def save_folder(parameter, new_results, store_name=results_file):
 
     os.chdir(cwd)
 
+
 def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                    control=False, simulation=False):
 
     # Saving thresholds
     if save_all:
+        quiet = True
         min_counts = 10
         min_mean_pos = 0
 
     else:
         min_counts = 200
         min_mean_pos = 1.2
-
 
     # Conversion of parameters and from_bin to list and array
     if type(parameters) is not(list):
@@ -514,13 +530,12 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                 file_list = []
                 for item in files_lists[dir_names.index(dir_name)]:
                     file_list.append([item_i for item_i in item if
-                                            item_i.endswith("_" + parameter)])
-
+                                     item_i.endswith("_" + parameter)])
 
                 if control:
                     file_list[0].sort()
                     file_list = [file_list[0][i:i + 3]
-                                        for i in range(0, len(file_list[0]), 3)]
+                                 for i in range(0, len(file_list[0]), 3)]
 
                 nfiles = len(file_list)
 
@@ -538,22 +553,24 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                     data_list[i].fit(from_bin[parameters.index(parameter)])
 
                     if not(simulation):
-                        if not(quiet):
-                            data_list[i].plot()
-                            save = input("Save it? (y/n) ")
-                            if save=='y':
+                        if save_all or quiet:
+                            min_total_counts = data_list[i].total_counts
+                            mean_pos = (1 /
+                                        (data_list[i].inv_tau *
+                                         data_list[i].bin_width))
+                            if data_list[i].parameter in ['offtimes',
+                                                          'ontimes']:
+                                mean_pos = mean_pos * data_list[i].frame_rate
+                            if (min_total_counts > min_counts and
+                                mean_pos > min_mean_pos):
                                 folder_results[i] = data_list[i].results
 
                         # Conditions for automatic saving: min total_counts and
                         # min bin position of fitting mean
                         else:
-                            min_total_counts = data_list[i].total_counts
-                            mean_pos = (1 /
-                                (data_list[i].inv_tau * data_list[i].bin_width))
-                            if data_list[i].parameter in ['offtimes', 'ontimes']:
-                                mean_pos = mean_pos * data_list[i].frame_rate
-                            if (min_total_counts > min_counts and
-                                mean_pos > min_mean_pos):
+                            data_list[i].plot()
+                            save = input("Save it? (y/n) ")
+                            if save is 'y':
                                 folder_results[i] = data_list[i].results
 
                 # Results printing
@@ -561,19 +578,22 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
 
                 # Get valid results and save them
                 empty_line = np.zeros(1, dtype=r_dtype)
-                folder_results = folder_results[np.where(folder_results != empty_line)]
+                folder_results = folder_results[np.where(folder_results !=
+                                                         empty_line)]
                 folder_results.sort(order=('date', 'power_642'))
 
                 if len(folder_results) > 0:
-                    print('Saving', len(folder_results), 'out of', nfiles, '...')
+                    print('Saving', len(folder_results), 'out of', nfiles,
+                          '...')
                     save_folder(parameter, folder_results)
 
                 else:
                     print("No data to save")
 
+
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000], join=False):
+                 dates=[0, 990000], join=False, discriminate=False):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -584,10 +604,11 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         # Load data from HDF5 file
         infile = hdf.File(store_name, "r")
         results = infile[parameter].value
+        calibration = infile['laser_calibration'].value
         infile.close()
 
         # Define subset of data
-        results = results[((results['date'] >= dates[0])*
+        results = results[((results['date'] >= dates[0]) *
                            (results['date'] <= dates[1]))]
 
         # Plot
@@ -602,14 +623,15 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         dates = np.unique(dates, return_index=True, return_inverse=True)[2]
 
         ax.set_xlabel("Intensity [kW/cm^2]")
-        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
+#        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
+        ax.set_xlim(0, 160)
 
-        if parameter=="ontimes":
+        if parameter is "ontimes":
 
             plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
                                         # c=dates,
 
-            if interval == None:
+            if interval is None:
                 ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
 
             else:
@@ -617,8 +639,17 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             ax.set_ylabel("Off rate [s^-1]")
 
-        elif parameter=="offtimes":
-            plt.scatter(x_data, y_data, c=dates, facecolors='none', edgecolors='b')
+        elif parameter is "offtimes":
+
+            if discriminate:
+                calibration['date']
+                indices = [np.where(results['date'] > cal_date)[0][0]
+                           for cal_date in calibration['date']]
+                x_r = np.split(x_data, indices)
+                print(x_r)
+                print(x_r.shape)
+
+            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
             ax.set_ylabel("On rate [s^-1]")
 
         else:
@@ -633,21 +664,21 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
                                 # c=dates
 
-            if interval != None:
+            if interval is not None:
                 ax.set_ylim(interval[0], interval[1])
 
             ax.set_ylabel(parameter)
 
         # Curve fitting
-        if fit_end != None:
+        if fit_end is not None:
             end = np.argmax(x_data > fit_end)
             x_data = x_data[:end]
             y_data = y_data[:end]
 
-        if fit=='hyperbolic':
+        if fit is 'hyperbolic':
 
             init_slope = 10
-            guess = [init_slope, y_data.max() / init_slope ]
+            guess = [init_slope, y_data.max() / init_slope]
 
             fit_par, fit_var = curve_fit(hyperbolic, x_data, y_data,
                                          p0=guess)
@@ -660,14 +691,14 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             x_plot.sort()
             fit_func = hyperbolic(x_plot, *fit_par)
             ax.plot(x_plot, fit_func, color='r', lw=3,
-            label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
-            .format(np.round(fit_par[0], 1),
-                    np.round(fit_sigma[0], 1),
-                    np.round(fit_par[1], 1),
-                    np.round(fit_sigma[1], 1)))
+                    label="y = A * x / (1 + x/B)\nA = {} pm {} \nB = {} pm {}"
+                    .format(np.round(fit_par[0], 1),
+                            np.round(fit_sigma[0], 1),
+                            np.round(fit_par[1], 1),
+                            np.round(fit_sigma[1], 1)))
             ax.legend(loc=4)
 
-        elif fit=='linear':
+        elif fit is 'linear':
 
             guess = [y_data.max() / x_data.max()]
             fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
@@ -676,29 +707,32 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             # Fitting curve plotting
             fit_func = linear(x_data, *fit_par)
             ax.plot(x_data, fit_func, color='r', lw=3,
-            label="y = A * x\nA = {} pm {}"
-            .format(np.round(fit_par[0], 1),
-                    np.round(fit_sigma[0], 1)))
+                    label="y = A * x\nA = {} pm {}"
+                    .format(np.round(fit_par[0], 1),
+                            np.round(fit_sigma[0], 1)))
             ax.legend(loc=4)
 
         if join:
+
+            # Sort the data
             y_s = y_data[np.argsort(x_data)]
             x_s = np.sort(x_data)
+
+            # Group the data every 5 kW/cm2 steps
             last = x_s[-1]
             indices = [np.where(x_s > i)[0][0] for i in np.arange(0, last, 5)]
             x_r = np.split(x_s, indices)
 
-#            x_u, index = np.unique(x_data, return_inverse=True)
+            # New x, y coordinates are the means of each group
             x_u = np.array([x_ri.mean() for x_ri in x_r if x_ri.size > 0])
             ex_u = np.array([x_ri.std() for x_ri in x_r if x_ri.size > 0])
 
             y_u = np.array([y_s[indices[i]:indices[i + 1]].mean()
-                          for i in np.arange(x_u.size)])
+                           for i in np.arange(x_u.size)])
             ey_u = np.array([y_s[indices[i]:indices[i + 1]].std()
-                          for i in np.arange(x_u.size)])
+                            for i in np.arange(x_u.size)])
 
             plt.errorbar(x_u, y_u, yerr=ey_u, xerr=ex_u, fmt='o')
-
 
         ax.grid(True)
         plt.show()
@@ -713,7 +747,7 @@ if __name__ == "__main__":
 #    %load_ext autoreload
 #    %autoreload 2
 
-    import sys, os
+    import sys
 
     repos = 'P:\\Private\\repos'
     sys.path.append(repos)
