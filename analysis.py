@@ -209,7 +209,6 @@ class Data:
             self.file_name = [self.file_name]
 
         # Paths and parameter extraction
-
         dot_p = self.file_name[0].find('.')
 
         self.path = self.file_name
@@ -221,8 +220,10 @@ class Data:
         self.power642 = int(self.file_name[0][1:self.file_name[0].index('_')
                             - 2])
 
-        uv_pos = file_name[0].find('uv')
-        power405 = self.file_name[0][uv_pos + 2:file_name[0].find('_', uv_pos)]
+        uv_pos = self.file_name[0].find('uv')
+#        print(uv_pos)
+        power405 = self.file_name[0][uv_pos + 2:self.file_name[0].find('_',
+                                                                       uv_pos)]
 
         self.power405 = float(power405.replace('p', '.'))
 
@@ -591,6 +592,43 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                     print("No data to save")
 
 
+def duty_cycle(initialdir=initialdir, results_file=results_file):
+    """Analyze the duty-cycle parameter in a selected folder"""
+
+    dir_names, files_lists = load_dir(initialdir=initialdir)
+
+    for dir_name in dir_names:
+
+        if len(files_lists[dir_names.index(dir_name)]) > 0:
+
+            onfiles = []
+            offfiles = []
+
+            for item in files_lists[dir_names.index(dir_name)]:
+                onfiles.append([item_i for item_i in item if
+                                item_i.endswith("_ontimes")])
+                offfiles.append([item_i for item_i in item if
+                                item_i.endswith("_offtimes")])
+
+            nfiles = len(onfiles)
+
+            # Creation of an instance of Data() for each file
+            ondata = [Data() for file in onfiles]
+            offdata = [Data() for file in offfiles]
+
+            # Structured array for the results of the folder
+            folder_results = np.zeros(nfiles, dtype=r_dtype)
+
+            for i in np.arange(nfiles):
+
+                ondata[i].load(dir_name, onfiles[i])
+                offdata[i].load(dir_name, offfiles[i])
+
+            indexes = [np.unique(ondata_i.table['molecules'], True, True)[1]
+                        for
+            ontimes_mol = np.split(ontimes.table['ontimes'], indexes)[1:]
+
+
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
                  mean=False, fit=None, fit_end=None, interval=None,
                  dates=[0, 990000], join=False, discriminate=False):
@@ -608,6 +646,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         infile.close()
 
         # Define subset of data
+        results = np.sort(results, order=['date'])
         results = results[((results['date'] >= dates[0]) *
                            (results['date'] <= dates[1]))]
 
@@ -642,15 +681,25 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         elif parameter is "offtimes":
 
             if discriminate:
-                calibration['date']
-                indices = [np.where(results['date'] > cal_date)[0][0]
+                indices = [np.where(results['date'] >= cal_date)[0][0]
                            for cal_date in calibration['date']]
-                x_r = np.split(x_data, indices)
-                print(x_r)
-                print(x_r.shape)
+                x_r = np.array(np.split(x_data, indices))[1:]
+                y_r = np.array(np.split(y_data, indices))[1:]
 
-            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+            colors = ['w', 'r', 'g', 'b', 'c', 'm', 'y', 'k']
+
+            for i in np.arange(x_r.size):
+                if 'TIRF' in calibration['comment'][i]:
+                    plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
+                # , facecolors='none', edgecolors='b')
             ax.set_ylabel("On rate [s^-1]")
+#            ax.set_xlim(0, 30)
+
+            if interval is None:
+                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
+
+            else:
+                ax.set_ylim(interval[0], interval[1])
 
         else:
 
@@ -752,7 +801,8 @@ if __name__ == "__main__":
     repos = 'P:\\Private\\repos'
     sys.path.append(repos)
 
-    parameter = ['ontimes', 'photons', 'totalphotons', 'transitions']
+    parameter = ['offtimes', 'ontimes', 'photons', 'totalphotons',
+                 'transitions']
     first_bin = [3, 3, 3, 3]
 
     import switching_analysis.analysis as sw
