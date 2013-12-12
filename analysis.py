@@ -27,7 +27,7 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power2.hdf5'
+results_file = 'results_vs_power.hdf5'
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
@@ -42,6 +42,7 @@ r_dtype = np.dtype([('date', int),
                     ('inv_tau', float),
                     ('hist_mean', float),
                     ('path', 'S100')])
+
 
 # CCD relative sensibility
 ccd_dtype = np.dtype([('DU860', float),
@@ -63,8 +64,12 @@ def hyperbolic(x, A, B):
     return A * x / (1 + x/B)
 
 
-def linear(x, A):
+def prop(x, A):
     return A * x
+
+
+def linear(x, A, B):
+    return A * x + B
 
 
 def new_empty():
@@ -221,10 +226,8 @@ class Data:
                             - 2])
 
         uv_pos = self.file_name[0].find('uv')
-#        print(uv_pos)
         power405 = self.file_name[0][uv_pos + 2:self.file_name[0].find('_',
                                                                        uv_pos)]
-
         self.power405 = float(power405.replace('p', '.'))
 
         # Information extraction from .inf file
@@ -265,6 +268,36 @@ class Data:
         self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
         self.fitted = False
 
+        store_file = getresults()
+
+        # Laser's intensity calibration
+        index = np.argmax(store_file['laser_calibration']['date'] > self.date)
+        p0_642 = store_file['laser_calibration']['642_0'][index - 1]
+        p1_642 = store_file['laser_calibration']['642_linear'][index - 1]
+        p2_642 = store_file['laser_calibration']['642_quad'][index - 1]
+        p0_405 = store_file['laser_calibration']['405_0'][index - 1]
+        p1_405 = store_file['laser_calibration']['405_linear'][index - 1]
+        p2_405 = store_file['laser_calibration']['405_quad'][index - 1]
+
+        store_file.close()
+
+        self.intensity642 = (p0_642 +
+                             p1_642 * self.power642 +
+                             p2_642 * self.power642**2)
+        self.intensity405 = (p0_405 +
+                             p1_405 * self.power405 +
+                             p2_405 * self.power405**2)
+
+        if self.parameter in ['photons', 'totalphotons']:
+            ccd_factor = ccd_sens[self.camera][self.hs_speed]
+            self.inv_tau = self.inv_tau / ccd_factor
+            self.mean = self.mean * ccd_factor
+
+        n_counts_tmp = np.zeros((10), dtype=int)
+        n_counts_tmp[0:len(self.n_counts)] = self.n_counts
+        # parche horrendo, no quiero volver a empezar
+        self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
+
     def fit(self, fit_start=0):
         """Histogram fitting"""
 
@@ -280,9 +313,9 @@ class Data:
 
         # Curve fitting
         try:
-            self.fit_par, self.fit_var = curve_fit(expo,
-                                                   self.bin_centres[self.fit_start:],
-                                                   self.hist[self.fit_start:],
+            x_fit = self.bin_centres[self.fit_start:]
+            y_fit = self.hist[self.fit_start:]
+            self.fit_par, self.fit_var = curve_fit(expo, x_fit, y_fit,
                                                    p0=self.fit_guess,
                                                    sigma=sigma)
             self.fitted = True
@@ -300,32 +333,6 @@ class Data:
             self.amplitude = 0
             self.inv_tau = 0
 
-        store_file = getresults()
-
-        # Laser's intensity calibration
-        index = np.argmax(store_file['laser_calibration']['date'] > self.date)
-        p0_642 = store_file['laser_calibration']['642_0'][index - 1]
-        p1_642 = store_file['laser_calibration']['642_linear'][index - 1]
-        p2_642 = store_file['laser_calibration']['642_quad'][index - 1]
-        p0_405 = store_file['laser_calibration']['405_0'][index - 1]
-        p1_405 = store_file['laser_calibration']['405_linear'][index - 1]
-        p2_405 = store_file['laser_calibration']['405_quad'][index - 1]
-        self.intensity642 = (p0_642 +
-                             p1_642 * self.power642 +
-                             p2_642 * self.power642**2)
-        self.intensity405 = (p0_405 +
-                             p1_405 * self.power405 +
-                             p2_405 * self.power405**2)
-
-        if self.parameter in ['photons', 'totalphotons']:
-            ccd_factor = ccd_sens[self.camera][self.hs_speed]
-            self.inv_tau = self.inv_tau / ccd_factor
-            self.mean = self.mean * ccd_factor
-
-        n_counts_tmp = np.zeros((10), dtype=int)
-        n_counts_tmp[0:len(self.n_counts)] = self.n_counts
-        # parche horrendo, no quiero volver a empezar
-        self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
         self.results = np.array([(self.date,
                                   self.frame_rate,
                                   self.n_frames,
@@ -595,11 +602,26 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
 def duty_cycle(initialdir=initialdir, results_file=results_file):
     """Analyze the duty-cycle parameter in a selected folder"""
 
+    dc_dtype = np.dtype([('date', int),
+                        ('frame_rate', float),
+                        ('n_frames', float),
+                        ('frame_size', 'S10'),
+                        ('power_642', int),
+                        ('intensity_642', float),
+                        ('power_405', float),
+                        ('intensity_405', float),
+                        ('n_counts', (int, (10))),
+                        ('dcycle_mean', float),
+                        ('dcycle_std', float),
+                        ('path', 'S100')])
+
     dir_names, files_lists = load_dir(initialdir=initialdir)
 
     for dir_name in dir_names:
 
         if len(files_lists[dir_names.index(dir_name)]) > 0:
+
+            print("Analyzing folder", dir_name)
 
             onfiles = []
             offfiles = []
@@ -617,16 +639,86 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
             offdata = [Data() for file in offfiles]
 
             # Structured array for the results of the folder
-            folder_results = np.zeros(nfiles, dtype=r_dtype)
+            folder_results = np.zeros(nfiles, dtype=dc_dtype)
 
+            # Load the files and store metadata
             for i in np.arange(nfiles):
 
                 ondata[i].load(dir_name, onfiles[i])
                 offdata[i].load(dir_name, offfiles[i])
+#                print(onfiles[i])
+#                print(np.unique(ondata[i].table['molecules'], True))
+#                print(np.unique(offdata[i].table['molecules'], True))
+                folder_results[i] = np.array([(offdata[i].date,
+                                             offdata[i].frame_rate,
+                                             offdata[i].n_frames,
+                                             offdata[i].frame_size,
+                                             offdata[i].power642,
+                                             offdata[i].intensity642,
+                                             offdata[i].power405,
+                                             offdata[i].intensity405,
+                                             offdata[i].n_counts,
+                                             0,
+                                             0,
+                                             offdata[i].minipath)],
+                                             dtype=dc_dtype)
 
-            indexes = [np.unique(ondata_i.table['molecules'], True, True)[1]
-                        for
-            ontimes_mol = np.split(ontimes.table['ontimes'], indexes)[1:]
+            # Sort the data
+            print('hey', ondata[1].table['molecules'])
+            ondata = [np.sort(ondata_i.table, order=['molecules'])
+                      for ondata_i in ondata]
+#            print(offdata[5])
+            offdata = [np.sort(offdata_i.table, order=['molecules'])
+                       for offdata_i in offdata]
+
+
+#            print(offdata)
+
+            # Split data according to the molecule number
+            on_indexes = [np.unique(ondata_i['molecules'], True)[1]
+                          for ondata_i in ondata]
+            print(on_indexes[5])
+
+            off_indexes = [np.unique(offdata_i['molecules'], True)[1]
+                           for offdata_i in offdata]
+            print(off_indexes[5])
+            ontimesxmol = [np.split(ondata[j]['ontimes'],
+                                    on_indexes[j])[1:]
+                           for j in np.arange(len(ondata))]
+            # Filter out traces with only one ontime
+            print([len(coso) for coso in ontimesxmol[5]])
+            print(ontimesxmol[5][4])
+#            ontimesxmol = [ontimesxmoli for ontimesxmoli in ontimesxmol if len(ontimesxmoli) > 2]
+#            print([len(ontimesxmoli) for ontimesxmoli in ontimesxmol])
+#            print([len(ontimesxmoli) for ontimesxmoli in ontimesxmol])
+            offtimesxmol = [np.split(offdata[j]['offtimes'],
+                                     off_indexes[j])[1:]
+                            for j in np.arange(len(offdata))]
+#            offtimesxmol = [offtimesxmoli for offtimesxmoli in offtimesxmol if len(offtimesxmoli) > 2]
+
+#            return offtimesxmol[0]
+
+            # Duty cycle calculation
+            s_ontimes = np.array([np.array([np.sum(ontimes)
+                                  for ontimes in ontimesxmol_i])
+                                  for ontimesxmol_i in ontimesxmol])
+            s_offtimes = np.array([np.array([np.sum(offtimes)
+                                   for offtimes in offtimesxmol_i])
+                                   for offtimesxmol_i in offtimesxmol])
+#            print(s_ontimes.shape)
+#            print(s_offtimes.shape)
+#            print(s_ontimes)
+            dutys = np.array([s_ontimes[j] / (s_ontimes[j] + s_offtimes[j])
+                              for j in np.arange(len(s_ontimes))])
+            duty_mean = np.array([np.mean(duty) for duty in dutys])
+            duty_std = np.array([np.std(duty) for duty in dutys])
+
+            # Save results
+            folder_results['dcycle_mean'] = duty_mean
+            folder_results['dcycle_std'] = duty_std
+            save_folder('duty_cycle', folder_results)
+
+#            plt.errorbar(intensity, duty_mean, yerr=duty_std, fmt='o')
 
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
@@ -686,19 +778,20 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 x_r = np.array(np.split(x_data, indices))[1:]
                 y_r = np.array(np.split(y_data, indices))[1:]
 
-            colors = ['w', 'r', 'g', 'b', 'c', 'm', 'y', 'k']
+                colors = ['w', 'r', 'g', 'b', 'c', 'm', 'y', 'k']
 
-            for i in np.arange(x_r.size):
-                if 'TIRF' in calibration['comment'][i]:
-                    plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
-                # , facecolors='none', edgecolors='b')
+                for i in np.arange(x_r.size):
+                    if 'TIRF' in calibration['comment'][i]:
+                        plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
+                    # , facecolors='none', edgecolors='b')
+
+            else:
+                plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+
             ax.set_ylabel("On rate [s^-1]")
 #            ax.set_xlim(0, 30)
 
-            if interval is None:
-                ax.set_ylim(0, int(ceil(y_data.max() / 100.0)) * 100)
-
-            else:
+            if interval is not None:
                 ax.set_ylim(interval[0], interval[1])
 
         else:
@@ -747,18 +840,34 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                             np.round(fit_sigma[1], 1)))
             ax.legend(loc=4)
 
-        elif fit is 'linear':
+        elif fit is 'prop':
 
             guess = [y_data.max() / x_data.max()]
-            fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
+            fit_par, fit_var = curve_fit(prop, x_data, y_data, p0=guess)
             fit_sigma = np.sqrt(fit_var[0])
 
             # Fitting curve plotting
-            fit_func = linear(x_data, *fit_par)
+            fit_func = prop(x_data, *fit_par)
             ax.plot(x_data, fit_func, color='r', lw=3,
                     label="y = A * x\nA = {} pm {}"
                     .format(np.round(fit_par[0], 1),
                             np.round(fit_sigma[0], 1)))
+            ax.legend(loc=4)
+
+        elif fit is 'linear':
+
+            guess = [y_data.max() / x_data.max(), y_data.min()]
+            fit_par, fit_var = curve_fit(linear, x_data, y_data, p0=guess)
+            fit_sigma = np.sqrt(fit_var.diagonal())
+
+            # Fitting curve plotting
+            fit_func = linear(x_data, *fit_par)
+            ax.plot(x_data, fit_func, color='r', lw=3,
+                    label="y = A * x + B\nA = {} pm {}\nB = {} pm {}"
+                    .format(np.round(fit_par[0], 3),
+                            np.round(fit_sigma[0], 3),
+                            np.round(fit_par[1], 1),
+                            np.round(fit_sigma[1], 1)))
             ax.legend(loc=4)
 
         if join:
@@ -803,7 +912,7 @@ if __name__ == "__main__":
 
     parameter = ['offtimes', 'ontimes', 'photons', 'totalphotons',
                  'transitions']
-    first_bin = [3, 3, 3, 3]
+    first_bin = [1, 3, 3, 3, 3]
 
     import switching_analysis.analysis as sw
 
