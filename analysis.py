@@ -646,9 +646,6 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
 
                 ondata[i].load(dir_name, onfiles[i])
                 offdata[i].load(dir_name, offfiles[i])
-#                print(onfiles[i])
-#                print(np.unique(ondata[i].table['molecules'], True))
-#                print(np.unique(offdata[i].table['molecules'], True))
                 folder_results[i] = np.array([(offdata[i].date,
                                              offdata[i].frame_rate,
                                              offdata[i].n_frames,
@@ -664,39 +661,22 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
                                              dtype=dc_dtype)
 
             # Sort the data
-            print('hey', ondata[1].table['molecules'])
             ondata = [np.sort(ondata_i.table, order=['molecules'])
                       for ondata_i in ondata]
-#            print(offdata[5])
             offdata = [np.sort(offdata_i.table, order=['molecules'])
                        for offdata_i in offdata]
-
-
-#            print(offdata)
 
             # Split data according to the molecule number
             on_indexes = [np.unique(ondata_i['molecules'], True)[1]
                           for ondata_i in ondata]
-            print(on_indexes[5])
-
             off_indexes = [np.unique(offdata_i['molecules'], True)[1]
                            for offdata_i in offdata]
-            print(off_indexes[5])
             ontimesxmol = [np.split(ondata[j]['ontimes'],
                                     on_indexes[j])[1:]
                            for j in np.arange(len(ondata))]
-            # Filter out traces with only one ontime
-            print([len(coso) for coso in ontimesxmol[5]])
-            print(ontimesxmol[5][4])
-#            ontimesxmol = [ontimesxmoli for ontimesxmoli in ontimesxmol if len(ontimesxmoli) > 2]
-#            print([len(ontimesxmoli) for ontimesxmoli in ontimesxmol])
-#            print([len(ontimesxmoli) for ontimesxmoli in ontimesxmol])
             offtimesxmol = [np.split(offdata[j]['offtimes'],
                                      off_indexes[j])[1:]
                             for j in np.arange(len(offdata))]
-#            offtimesxmol = [offtimesxmoli for offtimesxmoli in offtimesxmol if len(offtimesxmoli) > 2]
-
-#            return offtimesxmol[0]
 
             # Duty cycle calculation
             s_ontimes = np.array([np.array([np.sum(ontimes)
@@ -705,11 +685,10 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
             s_offtimes = np.array([np.array([np.sum(offtimes)
                                    for offtimes in offtimesxmol_i])
                                    for offtimesxmol_i in offtimesxmol])
-#            print(s_ontimes.shape)
-#            print(s_offtimes.shape)
-#            print(s_ontimes)
+
             dutys = np.array([s_ontimes[j] / (s_ontimes[j] + s_offtimes[j])
                               for j in np.arange(len(s_ontimes))])
+
             duty_mean = np.array([np.mean(duty) for duty in dutys])
             duty_std = np.array([np.std(duty) for duty in dutys])
 
@@ -717,8 +696,6 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
             folder_results['dcycle_mean'] = duty_mean
             folder_results['dcycle_std'] = duty_std
             save_folder('duty_cycle', folder_results)
-
-#            plt.errorbar(intensity, duty_mean, yerr=duty_std, fmt='o')
 
 
 def load_results(parameter, load_dir=initialdir, results_file=results_file,
