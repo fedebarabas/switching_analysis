@@ -108,7 +108,7 @@ def new_empty():
 
 
 def new_calibration(load_dir=initialdir, load_file=results_file):
-    results = getresults(load_file=load_dir + load_file)
+    results = getresults(load_dir=load_dir, load_file=load_file)
     size = results['laser_calibration'].size
     results['laser_calibration'].resize((size + 1,))
     results.close()
@@ -288,11 +288,6 @@ class Data:
                              p1_405 * self.power405 +
                              p2_405 * self.power405**2)
 
-        if self.parameter in ['photons', 'totalphotons']:
-            ccd_factor = ccd_sens[self.camera][self.hs_speed]
-            self.inv_tau = self.inv_tau / ccd_factor
-            self.mean = self.mean * ccd_factor
-
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
         # parche horrendo, no quiero volver a empezar
@@ -327,11 +322,17 @@ class Data:
                 self.inv_tau = self.inv_tau * self.frame_rate
                 self.mean = self.mean / self.frame_rate
 
+            if self.parameter in ['photons', 'totalphotons']:
+                ccd_factor = ccd_sens[self.camera][self.hs_speed]
+                self.inv_tau = self.inv_tau / ccd_factor
+                self.mean = self.mean * ccd_factor
+
         except RuntimeError:
             print("Fit didn't converge for", self.file_name)
             self.fitted = False
             self.amplitude = 0
             self.inv_tau = 0
+            self.fitted = False
 
         self.results = np.array([(self.date,
                                   self.frame_rate,
@@ -561,25 +562,27 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                     data_list[i].fit(from_bin[parameters.index(parameter)])
 
                     if not(simulation):
-                        if save_all or quiet:
-                            min_total_counts = data_list[i].total_counts
-                            mean_pos = (1 /
-                                        (data_list[i].inv_tau *
-                                         data_list[i].bin_width))
-                            if data_list[i].parameter in ['offtimes',
-                                                          'ontimes']:
-                                mean_pos = mean_pos * data_list[i].frame_rate
-                            if (min_total_counts > min_counts and
-                                mean_pos > min_mean_pos):
-                                folder_results[i] = data_list[i].results
+                        if data_list[i].fitted:
+                            if save_all or quiet:
+                                min_total_counts = data_list[i].total_counts
+                                mean_pos = (1 /
+                                            (data_list[i].inv_tau *
+                                             data_list[i].bin_width))
+                                if data_list[i].parameter in ['offtimes',
+                                                              'ontimes']:
+                                    mean_pos = (mean_pos *
+                                                data_list[i].frame_rate)
+                                if (min_total_counts > min_counts and
+                                    mean_pos > min_mean_pos):
+                                    folder_results[i] = data_list[i].results
 
-                        # Conditions for automatic saving: min total_counts and
-                        # min bin position of fitting mean
-                        else:
-                            data_list[i].plot()
-                            save = input("Save it? (y/n) ")
-                            if save is 'y':
-                                folder_results[i] = data_list[i].results
+                            # Conditions for automatic saving: min total_counts
+                            # and min bin position of fitting mean
+                            else:
+                                data_list[i].plot()
+                                save = input("Save it? (y/n) ")
+                                if save is 'y':
+                                    folder_results[i] = data_list[i].results
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
@@ -722,17 +725,21 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         # Plot
         fig, ax = plt.subplots()
         x_data = results['intensity_642']
-        if mean:
-            y_data = 1 / results['hist_mean']
+        if parameter is 'duty_cycle':
+            y_data = results['dcycle_mean']
+            ey_data = results['dcycle_std']
         else:
-            y_data = results['inv_tau']
+            if mean:
+                y_data = 1 / results['hist_mean']
+            else:
+                y_data = results['inv_tau']
 
         dates = results['date']
         dates = np.unique(dates, return_index=True, return_inverse=True)[2]
 
         ax.set_xlabel("Intensity [kW/cm^2]")
 #        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
-        ax.set_xlim(0, 160)
+        ax.set_xlim(0, 170)
 
         if parameter is "ontimes":
 
@@ -770,6 +777,12 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
             if interval is not None:
                 ax.set_ylim(interval[0], interval[1])
+
+        elif parameter is "duty_cycle":
+            plt.errorbar(x_data, y_data, ey_data, fmt='o')
+            ax.set_ylabel("Duty cycle")
+            ax.set_ylim(0, 0.01)
+
 
         else:
 
@@ -853,21 +866,41 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             y_s = y_data[np.argsort(x_data)]
             x_s = np.sort(x_data)
 
-            # Group the data every 5 kW/cm2 steps
-            last = x_s[-1]
-            indices = [np.where(x_s > i)[0][0] for i in np.arange(0, last, 5)]
-            x_r = np.split(x_s, indices)
+            if parameter is 'duty_cycle':
 
-            # New x, y coordinates are the means of each group
-            x_u = np.array([x_ri.mean() for x_ri in x_r if x_ri.size > 0])
-            ex_u = np.array([x_ri.std() for x_ri in x_r if x_ri.size > 0])
+                x_u, index = np.unique(x_data, return_inverse=True)
+                y_u = np.zeros(x_u.size)
+                ey_u = np.zeros(x_u.size)
+                for i in np.arange(np.unique(x_data).size):
+                    data = y_data[np.where(index == i)]
+                    if data.size > 1:
+                        y_u[i] = data.mean()
+                        ey_u[i] = data.std()
+                    else:
+                        y_u[i] = data[0]
+                        ey_u[i] = ey_data[np.where(index == i)][0]
 
-            y_u = np.array([y_s[indices[i]:indices[i + 1]].mean()
-                           for i in np.arange(x_u.size)])
-            ey_u = np.array([y_s[indices[i]:indices[i + 1]].std()
-                            for i in np.arange(x_u.size)])
+                plt.errorbar(x_u, y_u, ey_u, fmt='o')
 
-            plt.errorbar(x_u, y_u, yerr=ey_u, xerr=ex_u, fmt='o')
+            else:
+
+                # Group the data every 5 kW/cm2 steps
+                last = x_s[-1]
+                indices = [np.where(x_s > i)[0][0] for i in np.arange(0,
+                                                                      last,
+                                                                      5)]
+                x_r = np.split(x_s, indices)
+
+                # New x, y coordinates are the means of each group
+                x_u = np.array([x_ri.mean() for x_ri in x_r if x_ri.size > 0])
+                ex_u = np.array([x_ri.std() for x_ri in x_r if x_ri.size > 0])
+
+                y_u = np.array([y_s[indices[i]:indices[i + 1]].mean()
+                               for i in np.arange(x_u.size)])
+                ey_u = np.array([y_s[indices[i]:indices[i + 1]].std()
+                                for i in np.arange(x_u.size)])
+
+                plt.errorbar(x_u, y_u, yerr=ey_u, xerr=ex_u, fmt='o')
 
         ax.grid(True)
         plt.show()
