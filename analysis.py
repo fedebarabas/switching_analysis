@@ -27,7 +27,7 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = 'results_vs_power.hdf5'
+results_file = '488_vs_power.hdf5'
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
@@ -77,7 +77,9 @@ def new_empty():
 
     os.chdir(initialdir)
 
-    store_file = hdf.File("results_vs_power_empty_new.hdf5", "w")
+    splited_name = results_file.split(os.extsep)
+    store_file_name = splited_name[0] + '_empty_new.' + splited_name[1]
+    store_file = hdf.File(store_file_name, "w")
 
     # laser_calibration
     r_dtype = np.dtype([('date', int),
@@ -261,7 +263,11 @@ class Data:
 
         # Mean width cannot be less than 1 because we're making an histogram
         # of number of FRAMES
-        self.bin_width = max([round(self.mean / 12), 1])
+        if self.parameter in ['offtimes', 'ontimes']:
+            self.bin_width = min([max([round(self.mean / 12), 1]), 4])
+        else:
+            self.bin_width = max([round(self.mean / 12), 1])
+
         self.hist, bin_edges = np.histogram(self.table[self.parameter],
                                             bins=bins,
                                             range=(0, bins * self.bin_width))
@@ -460,6 +466,7 @@ def save_folder(parameter, new_results, store_name=results_file):
 
     cwd = os.getcwd()
     os.chdir(os.path.split(cwd)[0])
+    print(store_name)
 
     # If file doesn't exist, it's created and the dataset is added
     if not(os.path.isfile(store_name)):
@@ -738,8 +745,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
         dates = np.unique(dates, return_index=True, return_inverse=True)[2]
 
         ax.set_xlabel("Intensity [kW/cm^2]")
-#        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
-        ax.set_xlim(0, 170)
+        ax.set_xlim(0, int(ceil(x_data.max() / 10 + 1)) * 10)
+#        ax.set_xlim(0, 170)
 
         if parameter is "ontimes":
 
@@ -769,7 +776,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                         plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
                     # , facecolors='none', edgecolors='b')
 
-            else:
+            elif not(join):
                 plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             ax.set_ylabel("On rate [s^-1]")
@@ -779,7 +786,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 ax.set_ylim(interval[0], interval[1])
 
         elif parameter is "duty_cycle":
-            plt.errorbar(x_data, y_data, ey_data, fmt='o')
+            if not(join):
+                plt.errorbar(x_data, y_data, ey_data, fmt='o')
             ax.set_ylabel("Duty cycle")
             ax.set_ylim(0, 0.01)
 
@@ -840,8 +848,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             fit_func = prop(x_data, *fit_par)
             ax.plot(x_data, fit_func, color='r', lw=3,
                     label="y = A * x\nA = {} pm {}"
-                    .format(np.round(fit_par[0], 1),
-                            np.round(fit_sigma[0], 1)))
+                    .format(np.round(fit_par[0], 5),
+                            np.round(fit_sigma[0], 5)))
             ax.legend(loc=4)
 
         elif fit is 'linear':
@@ -856,8 +864,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                     label="y = A * x + B\nA = {} pm {}\nB = {} pm {}"
                     .format(np.round(fit_par[0], 3),
                             np.round(fit_sigma[0], 3),
-                            np.round(fit_par[1], 1),
-                            np.round(fit_sigma[1], 1)))
+                            np.round(fit_par[1], 2),
+                            np.round(fit_sigma[1], 2)))
             ax.legend(loc=4)
 
         if join:
@@ -866,7 +874,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
             y_s = y_data[np.argsort(x_data)]
             x_s = np.sort(x_data)
 
-            if parameter is 'duty_cycle':
+            if parameter in ['duty_cycle', 'offtimes']:
 
                 x_u, index = np.unique(x_data, return_inverse=True)
                 y_u = np.zeros(x_u.size)
@@ -878,7 +886,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                         ey_u[i] = data.std()
                     else:
                         y_u[i] = data[0]
-                        ey_u[i] = ey_data[np.where(index == i)][0]
+#                        ey_u[i] = ey_data[np.where(index == i)][0]
 
                 plt.errorbar(x_u, y_u, ey_u, fmt='o')
 
@@ -928,7 +936,9 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-    sw.analyze_folder(parameter[0], first_bin)
+#    sw.analyze_folder(parameter[0], first_bin)
+
+#    sw.
 
 #    results = sw.getresults(load_file='results_vs_power.hdf5')
 
