@@ -109,3 +109,8 @@ if __name__ == "__main__":
 
     print('tirf factor', tirf_factor)
     print('frame factor', frame_factor)
+    print('variance in tirf frame',
+          100 * frame(tirf_mean).std() / frame(tirf_mean).mean())
+
+#   plt.imshow(tirf_mean, interpolation='none')
+#   plt.colorbar()

@@ -27,16 +27,14 @@ import h5py as hdf
 
 #initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
-results_file = '488_vs_power.hdf5'
+results_file = 'switching_results.hdf5'
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('n_frames', float),
                     ('frame_size', 'S10'),
-                    ('power_642', int),
-                    ('intensity_642', float),
-                    ('power_405', float),
+                    ('intensity_ex', float),
                     ('intensity_405', float),
                     ('n_counts', (int, (10))),
                     ('inv_tau', float),
@@ -216,24 +214,25 @@ class Data:
             self.file_name = [self.file_name]
 
         # Paths and parameter extraction
-        dot_p = self.file_name[0].find('.')
-
         self.path = self.file_name
+        file_name0 = self.file_name[0]
         self.nfiles = len(self.file_name)
-        self.minipath = (self.subdir + r"/" +
-                         self.file_name[0][0:dot_p - 4])
-        self.parameter = self.file_name[0][self.file_name[0].rindex('_')
-                                           + 1:len(self.file_name[0])]
-        self.power642 = int(self.file_name[0][1:self.file_name[0].index('_')
-                            - 2])
+        self.minipath = (self.subdir + r"/" + file_name0.split('.')[0][:-4])
+        self.parameter = file_name0.split('.')[1].split('_')[1]
+        self.power = int(file_name0.split('_')[0][1:-2])
+        self.aotf = float(file_name0.split('_')[1].replace('p', '.'))
 
-        uv_pos = self.file_name[0].find('uv')
-        power405 = self.file_name[0][uv_pos + 2:self.file_name[0].find('_',
-                                                                       uv_pos)]
-        self.power405 = float(power405.replace('p', '.'))
+        uv_pos = file_name0.split('uv')[1]
+        self.aotf405 = float(uv_pos[:uv_pos.find('_')].replace('p', '.'))
+        if file_name0 == 'b':
+            self.laser = '488'
+        elif file_name0 == 'r':
+            self.laser = '642'
+        elif file_name0 == 'g':
+            self.laser = '532'
 
         # Information extraction from .inf file
-        inf_name = self.file_name[0][:dot_p] + '.inf'
+        inf_name = file_name0.split('.')[0] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
         self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
         self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
@@ -246,8 +245,13 @@ class Data:
 
         # Data loading
         self.n_counts = []
-        dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
-        self.table = np.fromfile(self.file_name[0], dtype=dt)
+        if self.parameter in ['offtimes', 'ontimes']:
+            dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4'),
+                           ('timestamp', '<f4')])
+
+        else:
+            dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
+        self.table = np.fromfile(file_name0, dtype=dt)
         self.n_counts.append((len(self.table)))
 
         if self.nfiles > 1:
@@ -277,22 +281,40 @@ class Data:
         store_file = getresults()
 
         # Laser's intensity calibration
-        index = np.argmax(store_file['laser_calibration']['date'] > self.date)
-        p0_642 = store_file['laser_calibration']['642_0'][index - 1]
-        p1_642 = store_file['laser_calibration']['642_linear'][index - 1]
-        p2_642 = store_file['laser_calibration']['642_quad'][index - 1]
-        p0_405 = store_file['laser_calibration']['405_0'][index - 1]
-        p1_405 = store_file['laser_calibration']['405_linear'][index - 1]
-        p2_405 = store_file['laser_calibration']['405_quad'][index - 1]
+        calibrations = np.array([int(d)
+                                for d in store_file['calibrations'].keys()])
+        cal_date = str(calibrations[np.argmax(calibrations > self.date) - 1])
+        calibration = store_file['calibrations'][cal_date][self.laser].value
+
+        cal_row = ((calibration['set power [mW]'] == self.power) *
+                   (calibration['aotf'] == self.aotf))
+
+        if np.sum(cal_row) is not 1:
+            print("Error in the calibration routine")
+
+        int_index = np.argmax(cal_row)
+        self.intensity_ex = calibration['intensity [kW/cm2]'][int_index]
+
+        cal405 = store_file['calibrations'][cal_date]['405'].value
+        int405_index = np.argmax(cal405['aotf'] == self.aotf405)
+        self.intensity_405 = cal405['intensity [W/cm2]'][int405_index]
+
+        # Old method
+#        index = np.argmax(store_file['laser_calibration']['date'] > self.date)
+#        p0_642 = store_file['laser_calibration']['642_0'][index - 1]
+#        p1_642 = store_file['laser_calibration']['642_linear'][index - 1]
+#        p2_642 = store_file['laser_calibration']['642_quad'][index - 1]
+#        p0_405 = store_file['laser_calibration']['405_0'][index - 1]
+#        p1_405 = store_file['laser_calibration']['405_linear'][index - 1]
+#        p2_405 = store_file['laser_calibration']['405_quad'][index - 1]
+#        self.intensity642 = (p0_642 +
+#                             p1_642 * self.power642 +
+#                             p2_642 * self.power642**2)
+#        self.intensity405 = (p0_405 +
+#                             p1_405 * self.power405 +
+#                             p2_405 * self.power405**2)
 
         store_file.close()
-
-        self.intensity642 = (p0_642 +
-                             p1_642 * self.power642 +
-                             p2_642 * self.power642**2)
-        self.intensity405 = (p0_405 +
-                             p1_405 * self.power405 +
-                             p2_405 * self.power405**2)
 
         n_counts_tmp = np.zeros((10), dtype=int)
         n_counts_tmp[0:len(self.n_counts)] = self.n_counts
@@ -344,10 +366,8 @@ class Data:
                                   self.frame_rate,
                                   self.n_frames,
                                   self.frame_size,
-                                  self.power642,
-                                  self.intensity642,
-                                  self.power405,
-                                  self.intensity405,
+                                  self.intensity_ex,
+                                  self.intensity_405,
                                   self.n_counts,
                                   self.inv_tau,
                                   self.mean,
@@ -936,7 +956,7 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-#    sw.analyze_folder(parameter[0], first_bin)
+    sw.analyze_folder(parameter[0], first_bin)
 
 #    sw.
 
