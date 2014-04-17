@@ -25,14 +25,24 @@ except ImportError:
 
 import h5py as hdf
 
-#initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
-initialdir = '\\\\hell-fs\\STORM\\Switching\\data\\'
+from glob import glob
+import beam_profile as bp
+
+initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
+initialdir2 = '\\\\hell-fs\\STORM\\Switching\\data\\'
 results_file = 'switching_results.hdf5'
+
+#dt = np.dtype([('path', 'S200'), ('cutoff', int)])
+#cut = np.zeros(25, dtype=dt)
+#        store_file.create_dataset('cutoff',
+#                                  data=cut,
+#                                  maxshape=(None,))
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
-                    ('n_frames', float),
+                    ('n_frames', int),
+                    ('cutoff', (int, (10))),
                     ('frame_size', 'S10'),
                     ('intensity_ex', float),
                     ('intensity_405', float),
@@ -156,8 +166,8 @@ def load_dir(initialdir=initialdir):
     return dir_names, return_lists
 
 
-def getresults(load_dir=initialdir, load_file=results_file):
-    """Load results held in results_vs_power.hdf5 file"""
+def getresults(load_dir=initialdir2, load_file=results_file):
+    """Load results held in the hdf5 results file"""
 
     if os.path.isfile(load_dir + load_file):
 
@@ -174,7 +184,7 @@ class Data:
     """Methods for analyzing the switching dynamics data"""
 
     def load(self, dir_name=None, file_name=None, initialdir=initialdir,
-             bins=50):
+             bins=50, last=-1):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
@@ -215,6 +225,7 @@ class Data:
 
         # Paths and parameter extraction
         self.path = self.file_name
+        print(self.file_name)
         file_name0 = self.file_name[0]
         self.nfiles = len(self.file_name)
         self.minipath = (self.subdir + r"/" + file_name0.split('.')[0][:-4])
@@ -224,34 +235,43 @@ class Data:
 
         uv_pos = file_name0.split('uv')[1]
         self.aotf405 = float(uv_pos[:uv_pos.find('_')].replace('p', '.'))
-        if file_name0 == 'b':
+        if file_name0[0] == 'b':
             self.laser = '488'
-        elif file_name0 == 'r':
+            self.dye = 'atto488'
+        elif file_name0[0] == 'r':
             self.laser = '642'
-        elif file_name0 == 'g':
+            self.dye = 'alexa647'
+        elif file_name0[0] == 'g':
             self.laser = '532'
+            self.dye = 'alexa532'
 
         # Information extraction from .inf file
         inf_name = file_name0.split('.')[0] + '.inf'
         inf_data = np.loadtxt(inf_name, dtype=str)
-        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:-1])
-        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:-1])
-        self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:-1] + 'x' +
-                           inf_data[8][inf_data[8].find('=') + 1:-1])
+        self.frame_rate = float(inf_data[22][inf_data[22].find('=') + 1:])
+        self.n_frames = float(inf_data[29][inf_data[29].find('=') + 1:])
+        self.frame_size = (inf_data[8][inf_data[8].find('=') + 1:] + 'x' +
+                           inf_data[8][inf_data[8].find('=') + 1:])
         self.camera = (inf_data[10][inf_data[10].find('=') + 1:
                        inf_data[10].find('_', inf_data[10].find('='))])
         self.hs_speed = int((inf_data[11][inf_data[11].find('=') + 1:
                              inf_data[11].find('_', inf_data[11].find('='))]))
 
         # Data loading
+        cutoff_hdf = hdf.File(initialdir2 + results_file, 'r')
+        ### TODO: agregar path al cutoff, hacer que sea expandible ese array
+        ### guardar cada cutoff en el coso
+        cutoff_hdf[self.dye]['cutoff']
         self.n_counts = []
         if self.parameter in ['offtimes', 'ontimes']:
             dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4'),
                            ('timestamp', '<f4')])
+            self.table = np.fromfile(file_name0, dtype=dt)
 
         else:
             dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
-        self.table = np.fromfile(file_name0, dtype=dt)
+            self.table = np.fromfile(file_name0, dtype=dt)
+
         self.n_counts.append((len(self.table)))
 
         if self.nfiles > 1:
@@ -260,6 +280,8 @@ class Data:
                 self.table = np.concatenate((self.table, new_table))
                 self.n_counts.append((len(new_table)))
 
+        cutoff_hdf.close()
+
         self.total_counts = sum(self.n_counts)
 
         # Histogram construction
@@ -267,10 +289,10 @@ class Data:
 
         # Mean width cannot be less than 1 because we're making an histogram
         # of number of FRAMES
-        if self.parameter in ['offtimes', 'ontimes']:
-            self.bin_width = min([max([round(self.mean / 12), 1]), 4])
+        if self.parameter in ['ontimes']:
+            self.bin_width = min([max([round(self.mean / 10), 1]), 4])
         else:
-            self.bin_width = max([round(self.mean / 12), 1])
+            self.bin_width = max([round(self.mean / 10), 1])
 
         self.hist, bin_edges = np.histogram(self.table[self.parameter],
                                             bins=bins,
@@ -289,7 +311,9 @@ class Data:
         cal_row = ((calibration['set power [mW]'] == self.power) *
                    (calibration['aotf'] == self.aotf))
 
-        if np.sum(cal_row) is not 1:
+        if np.sum(cal_row) != 1:
+            print(np.sum(cal_row))
+            print(self.power, self.aotf, self.laser)
             print("Error in the calibration routine")
 
         int_index = np.argmax(cal_row)
@@ -384,9 +408,10 @@ class Data:
                     label='_nolegend_')
         self.ax.set_xlabel(self.parameter)
         self.ax.grid(True)
+
         self.ax.text(0.75 * self.bins * self.bin_width,
                      0.2 * self.ax.get_ylim()[1],
-                     "Number of counts:\n" + str(self.table.size),
+                     "Counts after 1st bin:\n" + str(sum(self.hist[1:])),
                      horizontalalignment='center', verticalalignment='center',
                      bbox=dict(facecolor='white'))
         self.ax.set_xlim(0, self.bins * self.bin_width)
@@ -414,13 +439,13 @@ class Data:
 
         plt.show()
 
-    def save(self, store_name=results_file):
+    def save(self, store_name=os.path.join(initialdir2, results_file)):
         """Save in disk the results of the fitting of this instance of Data"""
 
         if self.fitted:
 
-            cwd = os.getcwd()
-            os.chdir(os.path.split(cwd)[0])
+#            cwd = os.getcwd()
+#            os.chdir(os.path.split(cwd)[0])
 
             # If file doesn't exist, it's created and the dataset is added
 #            if not(os.path.isfile(store_name)):
@@ -434,16 +459,17 @@ class Data:
             store_file = hdf.File(store_name, "r+")
 
             # If file exists but the dataset doesn't
-            if not(self.parameter in store_file):
-                store_file.create_dataset(self.parameter,
+            dat_path = '/' + self.dye + '/' + self.parameter
+            if not(dat_path in store_file):
+                store_file.create_dataset(dat_path,
                                           data=self.results,
                                           maxshape=(None,))
 
             # If file exists and the dataset too,
             # we check if any of the new results were previously saved
             else:
-                prev_size = store_file[self.parameter].size
-                prev_results = store_file[self.parameter].value
+                prev_size = store_file[dat_path].size
+                prev_results = store_file[dat_path].value
 
                 exists = np.any(prev_results == self.results)
                 if exists:
@@ -452,13 +478,13 @@ class Data:
                           ". We won't save it again.")
 
                 else:
-                    store_file[self.parameter].resize((prev_size + 1,))
-                    store_file[self.parameter][prev_size] = self.results
+                    store_file[dat_path].resize((prev_size + 1,))
+                    store_file[dat_path][prev_size] = self.results
 
             store_file.close()
             print("Done!")
 
-            os.chdir(cwd)
+#            os.chdir(cwd)
 
         else:
             print("Can't save results, Data not fitted")
@@ -476,12 +502,13 @@ def analyze_file(from_bin=0):
     print(data.parameter + " analyzed in " + data.dir_name)
 
     # If the plots are ok, Save results
-    save = input("Save results? (y/n) ")
+    save = raw_input("Save results? (y/n) ")
     if save == 'y':
         data.save()
 
 
-def save_folder(parameter, new_results, store_name=results_file):
+def save_folder(dye, parameter, new_results,
+                store_name=initialdir2 + results_file):
     """Saves the fitting results of the analysis of all files in a folder."""
 
     cwd = os.getcwd()
@@ -498,17 +525,19 @@ def save_folder(parameter, new_results, store_name=results_file):
     else:
         store_file = hdf.File(store_name, "r+")
 
+        dat_path = '/' + dye + '/' + parameter
+
         # If file exists but the dataset doesn't
-        if not(parameter in store_file):
-            store_file.create_dataset(parameter,
+        if not(dat_path in store_file):
+            store_file.create_dataset(dat_path,
                                       data=new_results,
                                       maxshape=(None,))
 
         # If file exists and the dataset too,
         # we check if any of the new results were previously saved
         else:
-            prev_size = store_file[parameter].size
-            prev_results = store_file[parameter].value
+            prev_size = store_file[dat_path].size
+            prev_results = store_file[dat_path].value
 
             exists = np.array([np.any(prev_results == new_result)
                               for new_result in new_results],
@@ -524,8 +553,8 @@ def save_folder(parameter, new_results, store_name=results_file):
             nfiles = new_results.size
 
             if nfiles > 0:
-                store_file[parameter].resize((prev_size + nfiles,))
-                store_file[parameter][prev_size:] = new_results
+                store_file[dat_path].resize((prev_size + nfiles,))
+                store_file[dat_path][prev_size:] = new_results
 
     store_file.close()
     print("Done!")
@@ -534,7 +563,7 @@ def save_folder(parameter, new_results, store_name=results_file):
 
 
 def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
-                   control=False, simulation=False):
+                   control=False, simulation=False, factors=None):
 
     # Saving thresholds
     if save_all:
@@ -555,6 +584,28 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
 
     dir_names, files_lists = load_dir()
 
+    if factors is None:
+
+        epinames = glob(os.path.join(dir_names[0], 'profile_EPI*.dax'))
+        tirfnames = glob(os.path.join(dir_names[0], 'profile_TIRF*.dax'))
+
+        if len(epinames) > 0:
+            tirf_factor, frame_factor, variance = bp.analyze_beam(epinames,
+                                                                  tirfnames)
+
+        else:
+            print('EPI and TIRF measurements not provided')
+
+    else:
+        tirf_factor, frame_factor, variance = factors
+
+    print('TIRF factor', tirf_factor)
+    print('Frame factor', frame_factor)
+    print('Intensity variance in frame', str(np.round(variance, 2))[:4], '%')
+
+    ### TODO: integrate parameters analysis to exclude transitions after a
+    ### > 5 * mean appereance
+
     for dir_name in dir_names:
 
         if len(files_lists[dir_names.index(dir_name)]) > 0:
@@ -566,7 +617,7 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                 file_list = []
                 for item in files_lists[dir_names.index(dir_name)]:
                     file_list.append([item_i for item_i in item if
-                                     item_i.endswith("_" + parameter)])
+                                     parameter in item_i])
 
                 if control:
                     file_list[0].sort()
@@ -607,9 +658,13 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                             # and min bin position of fitting mean
                             else:
                                 data_list[i].plot()
-                                save = input("Save it? (y/n) ")
+                                save = raw_input("Save it? (y/n) ")
                                 if save is 'y':
                                     folder_results[i] = data_list[i].results
+                                    fac = tirf_factor * frame_factor
+                                    tirff = tirf_factor
+                                    folder_results[i]['intensity_ex'] *= fac
+                                    folder_results[i]['intensity_405'] *= tirff
 
                 # Results printing
                 print(parameter + " analyzed in " + dir_name)
@@ -618,12 +673,13 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                 empty_line = np.zeros(1, dtype=r_dtype)
                 folder_results = folder_results[np.where(folder_results !=
                                                          empty_line)]
-                folder_results.sort(order=('date', 'power_642'))
+                folder_results.sort(order=('date', 'intensity_ex'))
 
                 if len(folder_results) > 0:
                     print('Saving', len(folder_results), 'out of', nfiles,
                           '...')
-                    save_folder(parameter, folder_results)
+                    dye = data_list[0].dye
+                    save_folder(dye, parameter, folder_results)
 
                 else:
                     print("No data to save")
@@ -636,9 +692,7 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
                         ('frame_rate', float),
                         ('n_frames', float),
                         ('frame_size', 'S10'),
-                        ('power_642', int),
-                        ('intensity_642', float),
-                        ('power_405', float),
+                        ('intensity_ex', float),
                         ('intensity_405', float),
                         ('n_counts', (int, (10))),
                         ('dcycle_mean', float),

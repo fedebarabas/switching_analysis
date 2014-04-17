@@ -70,9 +70,7 @@ def get_beam(image):
     return np.ma.masked_array(image, beam_mask)
 
 
-def beam_mean(ask):
-
-    filenames = load_files(ask)
+def beam_mean(filenames):
 
     mean_frames = np.zeros((len(filenames), shapes[1], shapes[2]))
 
@@ -89,6 +87,25 @@ def frame(image, r_min=r_min, l=l):
     return image[r_min[0]:r_min[0] + l, r_min[1]:r_min[1] + l]
 
 
+def analyze_beam(epinames=None, tirfnames=None):
+
+    if epinames is None:
+        epinames = load_files('epi')
+        tirfnames = load_files('tirf')
+
+    epi_mean = beam_mean(epinames)
+    tirf_mean = beam_mean(tirfnames)
+
+    tirf_factor = frame(tirf_mean).mean() / frame(epi_mean).mean()
+    frame_factor = frame(tirf_mean).mean() / tirf_mean.mean()
+    variance = 100 * frame(tirf_mean).std() / frame(tirf_mean).mean()
+
+    print('tirf factor', tirf_factor)
+    print('frame factor', frame_factor)
+    print('variance in tirf frame', variance)
+
+    return tirf_factor, frame_factor, variance
+
 if __name__ == "__main__":
 
 #    %load_ext autoreload
@@ -101,16 +118,7 @@ if __name__ == "__main__":
 
     import switching_analysis.beam_profile as bp
 
-    epi_mean = bp.beam_mean('epi files')
-    tirf_mean = bp.beam_mean('tirf files')
-
-    tirf_factor = frame(tirf_mean).mean() / frame(epi_mean).mean()
-    frame_factor = frame(tirf_mean).mean() / tirf_mean.mean()
-
-    print('tirf factor', tirf_factor)
-    print('frame factor', frame_factor)
-    print('variance in tirf frame',
-          100 * frame(tirf_mean).std() / frame(tirf_mean).mean())
+    bp.analyze_beam()
 
 #   plt.imshow(tirf_mean, interpolation='none')
 #   plt.colorbar()
