@@ -42,11 +42,12 @@ results_file = 'switching_results.hdf5'
 r_dtype = np.dtype([('date', int),
                     ('frame_rate', float),
                     ('n_frames', int),
-                    ('cutoff', (int, (10))),
+                    ('cutoffs', (int, (20))),
                     ('frame_size', 'S10'),
                     ('intensity_ex', float),
                     ('intensity_405', float),
-                    ('n_counts', (int, (10))),
+                    ('datasets', ('S3', (20))),
+                    ('n_counts', (int, (20))),
                     ('inv_tau', float),
                     ('hist_mean', float),
                     ('path', 'S100')])
@@ -258,27 +259,48 @@ class Data:
                              inf_data[11].find('_', inf_data[11].find('='))]))
 
         # Data loading
+        self.datasets = np.zeros((20), dtype='S3')
+        self.n_counts = np.zeros((20), dtype=int)
+        self.cutoffs = np.zeros((20), dtype=int)
+
         cutoff_hdf = hdf.File(initialdir2 + results_file, 'r')
-        ### TODO: agregar path al cutoff, hacer que sea expandible ese array
-        ### guardar cada cutoff en el coso
-        cutoff_hdf[self.dye]['cutoff']
-        self.n_counts = []
-        if self.parameter in ['offtimes', 'ontimes']:
+        cuts = cutoff_hdf[self.dye]['cutoffs']
+        is_cut = [co in self.subdir + '/' + file_name0 for co in cuts['path']]
+
+        if self.parameter in ['offtimes', 'ontimes', 'photons']:
             dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4'),
                            ('timestamp', '<f4')])
-            self.table = np.fromfile(file_name0, dtype=dt)
+            if np.sum(is_cut) > 1:
+                cut = cuts['cutoff'][np.argmax(is_cut)]
+                table = np.fromfile(file_name0, dtype=dt)
+                self.table = table[table['timestamp'] < cut]
+                self.cutoffs[0] = cut
+                print('cut', cut)
+            else:
+                self.table = np.fromfile(file_name0, dtype=dt)
 
         else:
             dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4')])
             self.table = np.fromfile(file_name0, dtype=dt)
 
-        self.n_counts.append((len(self.table)))
+        self.datasets[0] = file_name0.split('.')[0][-3:]
+        self.n_counts[0] = len(self.table)
 
         if self.nfiles > 1:
-            for file in self.file_name[1:]:
-                new_table = np.fromfile(file, dtype=dt)
+            for n_file in np.arange(1, self.nfiles):
+                f_name = self.file_name[n_file]
+                is_cut = [co in self.subdir + '/' + f_name
+                          for co in cuts['path']]
+                new_table = np.fromfile(self.file_name[n_file], dtype=dt)
+
+                if np.sum(is_cut) > 1:
+                    cut = cuts['cutoff'][np.argmax(is_cut)]
+                    new_table = new_table[new_table['timestamp'] < cut]
+                    print('cut', cut)
+
                 self.table = np.concatenate((self.table, new_table))
-                self.n_counts.append((len(new_table)))
+                self.n_counts[n_file] = len(new_table)
+                self.datasets[n_file] = f_name.split('.')[0][-3:]
 
         cutoff_hdf.close()
 
@@ -340,11 +362,6 @@ class Data:
 
         store_file.close()
 
-        n_counts_tmp = np.zeros((10), dtype=int)
-        n_counts_tmp[0:len(self.n_counts)] = self.n_counts
-        # parche horrendo, no quiero volver a empezar
-        self.n_counts = n_counts_tmp[0:np.min([n_counts_tmp.size, 10])]
-
     def fit(self, fit_start=0):
         """Histogram fitting"""
 
@@ -389,9 +406,11 @@ class Data:
         self.results = np.array([(self.date,
                                   self.frame_rate,
                                   self.n_frames,
+                                  self.cutoffs,
                                   self.frame_size,
                                   self.intensity_ex,
                                   self.intensity_405,
+                                  self.datasets,
                                   self.n_counts,
                                   self.inv_tau,
                                   self.mean,
