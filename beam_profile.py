@@ -100,10 +100,6 @@ def analyze_beam(epinames=None, tirfnames=None):
     frame_factor = frame(tirf_mean).mean() / tirf_mean.mean()
     variance = 100 * frame(tirf_mean).std() / frame(tirf_mean).mean()
 
-    print('tirf factor', tirf_factor)
-    print('frame factor', frame_factor)
-    print('variance in tirf frame', variance)
-
     return tirf_factor, frame_factor, variance
 
 if __name__ == "__main__":

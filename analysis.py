@@ -49,7 +49,10 @@ r_dtype = np.dtype([('date', int),
                     ('datasets', ('S3', (20))),
                     ('n_counts', (int, (20))),
                     ('inv_tau', float),
+                    ('einv_tau', float),
                     ('hist_mean', float),
+                    ('transitions', float),
+                    ('etransitions', float),
                     ('path', 'S100')])
 
 
@@ -63,6 +66,10 @@ ccd_sens['DU860'][3] = 1.17
 ccd_sens['DU897'][10] = 1.17
 ccd_sens['DU897'][5] = 1.04
 ccd_sens['DU897'][3] = 1
+
+
+def index_changes(x):
+    return np.where(x[:-1] != x[1:])[0] + 1
 
 
 def expo(x, A, inv_tau):
@@ -270,12 +277,11 @@ class Data:
         if self.parameter in ['offtimes', 'ontimes', 'photons']:
             dt = np.dtype([(self.parameter, '<f4'), ('molecules', '<f4'),
                            ('timestamp', '<f4')])
-            if np.sum(is_cut) > 1:
+            if np.sum(is_cut) > 0:
                 cut = cuts['cutoff'][np.argmax(is_cut)]
                 table = np.fromfile(file_name0, dtype=dt)
                 self.table = table[table['timestamp'] < cut]
                 self.cutoffs[0] = cut
-                print('cut', cut)
             else:
                 self.table = np.fromfile(file_name0, dtype=dt)
 
@@ -287,16 +293,17 @@ class Data:
         self.n_counts[0] = len(self.table)
 
         if self.nfiles > 1:
+
             for n_file in np.arange(1, self.nfiles):
                 f_name = self.file_name[n_file]
                 is_cut = [co in self.subdir + '/' + f_name
                           for co in cuts['path']]
                 new_table = np.fromfile(self.file_name[n_file], dtype=dt)
 
-                if np.sum(is_cut) > 1:
+                if np.sum(is_cut) > 0:
                     cut = cuts['cutoff'][np.argmax(is_cut)]
+                    self.cutoffs[n_file] = cut
                     new_table = new_table[new_table['timestamp'] < cut]
-                    print('cut', cut)
 
                 self.table = np.concatenate((self.table, new_table))
                 self.n_counts[n_file] = len(new_table)
@@ -307,14 +314,25 @@ class Data:
         self.total_counts = sum(self.n_counts)
 
         # Histogram construction
-        self.mean = np.mean(self.table[self.parameter])
+        table = self.table[self.parameter]
+        self.mean = np.mean(table)
+        print('mean', self.mean)
 
         # Mean width cannot be less than 1 because we're making an histogram
         # of number of FRAMES
-        if self.parameter in ['ontimes']:
-            self.bin_width = min([max([round(self.mean / 10), 1]), 4])
-        else:
-            self.bin_width = max([round(self.mean / 10), 1])
+#        if self.parameter in ['ontimes']:
+#            self.bin_width = min([max([round(self.mean / 10), 1]), 4])
+#        else:
+        self.bin_width = max([round(self.mean / 10), 1])
+
+        self.thr_mean = np.mean(table[table > self.bin_width]) + self.bin_width
+        print('thr_mean', self.thr_mean)
+        self.mean = self.thr_mean
+
+#        if self.parameter in ['ontimes']:
+#            self.bin_width = min([max([round(self.mean / 10), 1]), 4])
+#        else:
+        self.bin_width = max([round(self.mean / 10), 1])
 
         self.hist, bin_edges = np.histogram(self.table[self.parameter],
                                             bins=bins,
@@ -362,6 +380,13 @@ class Data:
 
         store_file.close()
 
+        # transitions calculation
+        mol_tab = self.table['molecules']
+        splitted = np.split(mol_tab, index_changes(mol_tab))
+        transitions = np.array([len(s) for s in splitted])
+        self.transitions = transitions.mean()
+        self.etransitions = transitions.std()
+
     def fit(self, fit_start=0):
         """Histogram fitting"""
 
@@ -387,13 +412,16 @@ class Data:
             # Method definitions to make it more verbose
             self.amplitude = self.fit_par[0]
             self.inv_tau = self.fit_par[1]
+            self.einv_tau = np.sqrt(self.fit_var[1, 1])
             if self.parameter in ['offtimes', 'ontimes']:
                 self.inv_tau = self.inv_tau * self.frame_rate
+                self.einv_tau = self.einv_tau * self.frame_rate
                 self.mean = self.mean / self.frame_rate
 
             if self.parameter in ['photons', 'totalphotons']:
                 ccd_factor = ccd_sens[self.camera][self.hs_speed]
                 self.inv_tau = self.inv_tau / ccd_factor
+                self.einv_tau = self.einv_tau / ccd_factor
                 self.mean = self.mean * ccd_factor
 
         except RuntimeError:
@@ -413,7 +441,10 @@ class Data:
                                   self.datasets,
                                   self.n_counts,
                                   self.inv_tau,
+                                  self.einv_tau,
                                   self.mean,
+                                  self.transitions,
+                                  self.etransitions,
                                   self.minipath)],
                                 dtype=r_dtype)
 
@@ -428,12 +459,14 @@ class Data:
         self.ax.set_xlabel(self.parameter)
         self.ax.grid(True)
 
+        self.ax.set_xlim(0, self.bins * self.bin_width)
+        self.ax.set_ylim(0, 1.1 * self.hist[1])
         self.ax.text(0.75 * self.bins * self.bin_width,
                      0.2 * self.ax.get_ylim()[1],
                      "Counts after 1st bin:\n" + str(sum(self.hist[1:])),
                      horizontalalignment='center', verticalalignment='center',
                      bbox=dict(facecolor='white'))
-        self.ax.set_xlim(0, self.bins * self.bin_width)
+
 
         # If the histogram was fit, then we plot also the fitting exponential
         if self.fitted:
@@ -621,9 +654,6 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
     print('TIRF factor', tirf_factor)
     print('Frame factor', frame_factor)
     print('Intensity variance in frame', str(np.round(variance, 2))[:4], '%')
-
-    ### TODO: integrate parameters analysis to exclude transitions after a
-    ### > 5 * mean appereance
 
     for dir_name in dir_names:
 
@@ -1029,7 +1059,7 @@ if __name__ == "__main__":
 
 #    sw.analyze_folder(parameter, first_bin, quiet=True, save_all=True)
 
-    sw.analyze_folder(parameter[0], first_bin)
+    sw.analyze_folder(['offtimes', 'ontimes'], first_bin)
 
 #    sw.
 
