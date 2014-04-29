@@ -84,7 +84,7 @@ def beam_mean(filenames):
 
 def frame(image, r_min=r_min, l=l):
 
-    return image[r_min[0]:r_min[0] + l, r_min[1]:r_min[1] + l]
+    return image[r_min[1]:r_min[1] + l, r_min[0]:r_min[0] + l]
 
 
 def analyze_beam(epinames=None, tirfnames=None):
@@ -114,7 +114,12 @@ if __name__ == "__main__":
 
     import switching_analysis.beam_profile as bp
 
-    bp.analyze_beam()
+    epi_fov = bp.beam_mean(bp.load_files('epi'))
+    tirf_fov = bp.beam_mean(bp.load_files('tirf'))
+
+    tirf_factor = frame(tirf_fov).mean() / frame(epi_fov).mean()
+    frame_factor = frame(tirf_fov).mean() / tirf_fov.mean()
+    std = 100 * frame(tirf_fov).std() / frame(tirf_fov).mean()
 
 #   plt.imshow(tirf_mean, interpolation='none')
 #   plt.colorbar()

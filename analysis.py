@@ -32,11 +32,21 @@ initialdir = 'Q:\\\\01_JointProjects\\STORM\\Switching\\data\\'
 initialdir2 = '\\\\hell-fs\\STORM\\Switching\\data\\'
 results_file = 'switching_results.hdf5'
 
+# Cutoffs info handling
+#
 #dt = np.dtype([('path', 'S200'), ('cutoff', int)])
 #cut = np.zeros(25, dtype=dt)
-#        store_file.create_dataset('cutoff',
-#                                  data=cut,
-#                                  maxshape=(None,))
+#cut[0] = (subdir + '/' + 'b760mW_0p1_uv0_100Hz_TIRF_000', 3000)
+#ff = hdf.File(initialdir2 + 'switching_results.hdf5', 'r+')
+#ff.create_dataset('/atto488/cutoffs',
+#                  data=cut,
+#                  maxshape=(None,))
+#ff = hdf.File(initialdir2 + results_file, 'r+')
+#prev = ff['alexa647/cutoffs'].value
+#prev_size = ff['alexa647/cutoffs'].size
+#ff['alexa647/cutoffs'].resize((prev_size + cut.size,))
+#ff['alexa647/cutoffs'][prev_size:] = cut
+#ff.close()
 
 # Data type for the results
 r_dtype = np.dtype([('date', int),
@@ -192,28 +202,33 @@ class Data:
     """Methods for analyzing the switching dynamics data"""
 
     def load(self, dir_name=None, file_name=None, initialdir=initialdir,
-             bins=50, last=-1):
+             bins=50, last=-1, fit_start=1):
         """Data loading
         file_name can be:
             ~) a string containing the name of the file to load
             ~) a list of strings, containing the names of the files that
             should be considered part of the same dataset"""
 
+        # Total bins
         self.bins = bins
+
+        # Number of bins excluded from the analysis
+        self.fit_start = fit_start
 
         if dir_name is None:
             # File dialog
             root = Tk()
-            file_name = filedialog.askopenfilename(parent=root,
-                                                   initialdir=initialdir,
-                                                   title='Please select all '
-                                                   'files that have to be '
-                                                   'joined')
+            file_name = filedialog.askopenfilenames(parent=root,
+                                                    initialdir=initialdir,
+                                                    title='Please select all '
+                                                    'files that have to be '
+                                                    'joined')
             root.destroy()
 
             # File attributes definitions
-            self.dir_name = os.path.split(file_name)[0]
-            self.file_name = os.path.split(file_name)[1]
+            file_name = file_name.split()
+            self.dir_name = os.path.split(file_name[0])[0]
+            self.file_name = [os.path.split(name)[1] for name in file_name]
 
         else:
             self.dir_name = dir_name
@@ -237,7 +252,7 @@ class Data:
         file_name0 = self.file_name[0]
         self.nfiles = len(self.file_name)
         self.minipath = (self.subdir + r"/" + file_name0.split('.')[0][:-4])
-        self.parameter = file_name0.split('.')[1].split('_')[1]
+        self.parameter = str(file_name0.split('.')[1].split('_')[1])
         self.power = int(file_name0.split('_')[0][1:-2])
         self.aotf = float(file_name0.split('_')[1].replace('p', '.'))
 
@@ -314,8 +329,8 @@ class Data:
         self.total_counts = sum(self.n_counts)
 
         # Histogram construction
-        table = self.table[self.parameter]
-        self.mean = np.mean(table)
+        par_table = self.table[self.parameter]
+        self.mean = np.mean(par_table)
         print('mean', self.mean)
 
         # Mean width cannot be less than 1 because we're making an histogram
@@ -325,22 +340,30 @@ class Data:
 #        else:
         self.bin_width = max([round(self.mean / 10), 1])
 
-        self.thr_mean = np.mean(table[table > self.bin_width]) + self.bin_width
+        self.threshold = fit_start * self.bin_width
+        self.thr_par_table = par_table[par_table > self.threshold]
+        self.thr_mean = np.mean(self.thr_par_table) - self.threshold
+        print('threshold:', self.threshold)
         print('thr_mean', self.thr_mean)
         self.mean = self.thr_mean
 
-#        if self.parameter in ['ontimes']:
-#            self.bin_width = min([max([round(self.mean / 10), 1]), 4])
-#        else:
-        self.bin_width = max([round(self.mean / 10), 1])
+#        self.bin_width = max([round(self.mean / 10), 1])
 
-        self.hist, bin_edges = np.histogram(self.table[self.parameter],
-                                            bins=bins,
-                                            range=(0, bins * self.bin_width))
-        self.bin_centres = (bin_edges[:-1] + bin_edges[1:]) / 2
+        self.hist, self.bin_edges = np.histogram(self.thr_par_table,
+                                                 bins=bins,
+                                                 normed=True,
+                                                 range=(self.threshold,
+                                                        bins * self.bin_width))
+        self.bin_centres = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2
         self.fitted = False
 
-        store_file = getresults()
+        # Load data from HDF5 file
+        if os.path.isfile(initialdir2 + results_file):
+
+            store_file = hdf.File(initialdir2 + results_file, "r")
+
+        else:
+            print("HDF5 file not found")
 
         # Laser's intensity calibration
         calibrations = np.array([int(d)
@@ -387,23 +410,21 @@ class Data:
         self.transitions = transitions.mean()
         self.etransitions = transitions.std()
 
-    def fit(self, fit_start=0):
+    def fit(self):
         """Histogram fitting"""
-
-        self.fit_start = fit_start
 
         # Educated guess to initialize the fit
         self.fit_guess = [self.hist[0], 1 / self.mean]
 
         # Error estimation from Poisson statistics
-        sigma = np.sqrt(self.hist[self.fit_start:])
+        sigma = np.sqrt(self.hist)
         if 0 in sigma:
             sigma = np.asarray([1 if x == 0 else x for x in sigma])
 
         # Curve fitting
         try:
-            x_fit = self.bin_centres[self.fit_start:]
-            y_fit = self.hist[self.fit_start:]
+            x_fit = self.bin_centres
+            y_fit = self.hist
             self.fit_par, self.fit_var = curve_fit(expo, x_fit, y_fit,
                                                    p0=self.fit_guess,
                                                    sigma=sigma)
@@ -463,23 +484,26 @@ class Data:
         self.ax.set_ylim(0, 1.1 * self.hist[1])
         self.ax.text(0.75 * self.bins * self.bin_width,
                      0.2 * self.ax.get_ylim()[1],
-                     "Counts after 1st bin:\n" + str(sum(self.hist[1:])),
+                     "Counts after 1st bin:\n" + str(len(self.thr_par_table)),
                      horizontalalignment='center', verticalalignment='center',
                      bbox=dict(facecolor='white'))
 
+        # Plot of the distribution with lambda = 1 / mean
+        hist_est = expo(self.bin_centres, 1 / self.thr_mean, 1 / self.thr_mean)
+        self.ax.plot(self.bin_centres, hist_est, color='b', lw=3,
+                     label="Estimator distribution\n"
+                     "y = (1 / mean) * exp(-(1 / mean) * x)\n"
+                     "mean = {}".format(self.mean))
 
         # If the histogram was fit, then we plot also the fitting exponential
         if self.fitted:
             hist_fit = expo(self.bin_centres, *self.fit_par)
-            self.ax.plot(self.bin_centres[self.fit_start:],
-                         hist_fit[self.fit_start:],
-                         color='r', lw=3,
-                         label="y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = "
-                         "{}\ntau = {}".format(int(self.amplitude),
+            self.ax.plot(self.bin_centres, hist_fit, color='r', lw=3,
+                         label="Fitting distribution\n"
+                         "y = A * exp(-inv_tau * x)\nA = {}\ninv_tau = "
+                         "{}\ntau = {}".format(self.amplitude,
                                                self.inv_tau,
                                                1 / self.inv_tau))
-            self.ax.legend()
-
             # Print filter indicators
             print("total_counts (200) =", self.total_counts)
             mean_pos = 1 / (self.inv_tau * self.bin_width)
@@ -487,8 +511,9 @@ class Data:
                 mean_pos = mean_pos * self.frame_rate
             print("mean_pos (1.2) =", mean_pos)
             print("hist_mean", self.mean)
-            print("hist_mean sobre fr", self.mean / self.frame_rate)
+            print("intensity", self.intensity_ex)
 
+        self.ax.legend()
         plt.show()
 
     def save(self, store_name=os.path.join(initialdir2, results_file)):
@@ -685,8 +710,9 @@ def analyze_folder(parameters, from_bin, quiet=False, save_all=False,
                 for i in range(nfiles):
 
                     # Procedures
-                    data_list[i].load(dir_name, file_list[i])
-                    data_list[i].fit(from_bin[parameters.index(parameter)])
+                    data_list[i].load(dir_name, file_list[i],
+                                      fit_start=from_bin[parameters.index(parameter)])
+                    data_list[i].fit()
 
                     if not(simulation):
                         if data_list[i].fitted:
@@ -831,9 +857,10 @@ def duty_cycle(initialdir=initialdir, results_file=results_file):
             save_folder('duty_cycle', folder_results)
 
 
-def load_results(parameter, load_dir=initialdir, results_file=results_file,
-                 mean=False, fit=None, fit_end=None, interval=None,
-                 dates=[0, 990000], join=False, discriminate=False):
+def load_results(dye, parameter, load_dir=initialdir,
+                 results_file=results_file, mean=False, fit=None, fit_end=None,
+                 interval=None, dates=[0, 990000], join=False,
+                 discriminate=False):
     """Plot results held in results_vs_power.hdf5 file"""
 
     store_name = results_file
@@ -843,8 +870,8 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         # Load data from HDF5 file
         infile = hdf.File(store_name, "r")
-        results = infile[parameter].value
-        calibration = infile['laser_calibration'].value
+        results = infile[dye][parameter].value
+#        calibration = infile['laser_calibration'].value
         infile.close()
 
         # Define subset of data
@@ -854,7 +881,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         # Plot
         fig, ax = plt.subplots()
-        x_data = results['intensity_642']
+        x_data = results['intensity_ex']
         if parameter is 'duty_cycle':
             y_data = results['dcycle_mean']
             ey_data = results['dcycle_std']
@@ -863,6 +890,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
                 y_data = 1 / results['hist_mean']
             else:
                 y_data = results['inv_tau']
+                ey_data = results['einv_tau']
 
         dates = results['date']
         dates = np.unique(dates, return_index=True, return_inverse=True)[2]
@@ -873,7 +901,7 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         if parameter is "ontimes":
 
-            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+            plt.errorbar(x_data, y_data, yerr=ey_data, fmt='o') #, facecolors='none', edgecolors='b')
                                         # c=dates,
 
             if interval is None:
@@ -886,21 +914,21 @@ def load_results(parameter, load_dir=initialdir, results_file=results_file,
 
         elif parameter is "offtimes":
 
-            if discriminate:
-                indices = [np.where(results['date'] >= cal_date)[0][0]
-                           for cal_date in calibration['date']]
-                x_r = np.array(np.split(x_data, indices))[1:]
-                y_r = np.array(np.split(y_data, indices))[1:]
+#            if discriminate:
+#                indices = [np.where(results['date'] >= cal_date)[0][0]
+#                           for cal_date in calibration['date']]
+#                x_r = np.array(np.split(x_data, indices))[1:]
+#                y_r = np.array(np.split(y_data, indices))[1:]
+#
+#                colors = ['w', 'r', 'g', 'b', 'c', 'm', 'y', 'k']
+#
+#                for i in np.arange(x_r.size):
+#                    if 'TIRF' in calibration['comment'][i]:
+#                        plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
+#                    # , facecolors='none', edgecolors='b')
 
-                colors = ['w', 'r', 'g', 'b', 'c', 'm', 'y', 'k']
-
-                for i in np.arange(x_r.size):
-                    if 'TIRF' in calibration['comment'][i]:
-                        plt.scatter(x_r[i], y_r[i], facecolors=colors[i])
-                    # , facecolors='none', edgecolors='b')
-
-            elif not(join):
-                plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
+#            elif not(join):
+            plt.scatter(x_data, y_data, facecolors='none', edgecolors='b')
 
             ax.set_ylabel("On rate [s^-1]")
 #            ax.set_xlim(0, 30)
